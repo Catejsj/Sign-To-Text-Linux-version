@@ -1,0 +1,17 @@
+# Computer Vision & Motion Capture
+opencv-python==4.13.0.92
+mediapipe==0.10.14
+rtmlib==0.0.15
+onnxruntime-gpu
+
+# Math & Data Processing
+# NOTE: If numpy 2.x causes issues with mediapipe, downgrade to numpy==1.26.4
+numpy==2.4.4
+
+# Utilities
+python-json-logger==4.1.0
+
+# AI/ML — for local inference (Colab has its own PyTorch)
+# Install with CUDA support:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+torch

@@ -1,0 +1,78 @@
+{
+  "capture": {
+    "camera_id": 0,
+    "fps": 30,
+    "width": 640,
+    "height": 480,
+    "flip_horizontal": false,
+    "window_scale": 2.0
+  },
+  "mediapipe": {
+    "model_complexity": 1,
+    "min_detection_confidence": 0.3,
+    "min_tracking_confidence": 0.3,
+    "enable_segmentation": false,
+    "static_image_mode": false,
+    "max_num_hands": 2,
+    "min_hand_detection_confidence": 0.3,
+    "min_hand_tracking_confidence": 0.3
+  },
+  "network": {
+    "wsl_ip": "172.19.90.246",
+    "wsl_port": 9999,
+    "receive_port": 9999,
+    "godot_ip": "172.19.80.1",
+    "godot_port": 8888,
+    "protocol": "udp"
+  },
+  "normalization": {
+    "anchor_type": "mid_shoulder",
+    "scale_method": "shoulder_width",
+    "coordinate_system": "body_centric"
+  },
+  "smoothing": {
+    "enabled": true,
+    "method": "one_euro",
+    "min_cutoff": 0.5,
+    "beta": 0.1,
+    "d_cutoff": 1.0
+  },
+  "skeleton_mapping": {
+    "bones": [
+      "spine",
+      "neck",
+      "head",
+      "shoulder_l",
+      "shoulder_r",
+      "upper_arm_l",
+      "upper_arm_r",
+      "lower_arm_l",
+      "lower_arm_r",
+      "hand_l",
+      "hand_r"
+    ]
+  },
+  "ai_framework": {
+    "enabled": false,
+    "model_path": "models/khmer_sign_model.pth",
+    "buffer_size": 60,
+    "inference_interval": 30
+  },
+  "recording": {
+    "sequence_length": 60,
+    "data_dir": "data/sequences",
+    "save_raw": true,
+    "save_clean": true
+  },
+  "inference": {
+    "weights_path": "models/weights/ksl_model_latest.pth",
+    "confidence_threshold": 0.6,
+    "inference_interval": 15,
+    "sliding_window": 60
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/wsl_mapper.log",
+    "console": true
+  }
+}

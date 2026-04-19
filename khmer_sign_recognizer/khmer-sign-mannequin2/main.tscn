@@ -1,0 +1,28 @@
+[gd_scene format=3 uid="uid://b52qsutpjitn"]
+
+[ext_resource type="Script" uid="uid://dt5d1kse2420" path="res://main.gd" id="1_0xm2m"]
+[ext_resource type="PackedScene" uid="uid://db4lumkxaxw12" path="res://model/character.fbx" id="1_ig7tw"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_0xm2m"]
+
+[sub_resource type="Sky" id="Sky_h2yge"]
+sky_material = SubResource("ProceduralSkyMaterial_0xm2m")
+
+[sub_resource type="Environment" id="Environment_1bvp3"]
+background_mode = 2
+sky = SubResource("Sky_h2yge")
+
+[node name="main" type="Node3D" unique_id=285848364]
+script = ExtResource("1_0xm2m")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1100165058]
+transform = Transform3D(1, 0, 0, 0, 0.9848077, 0.17364818, 0, -0.17364818, 0.9848077, 0, 1.5, 3)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="Camera3D" unique_id=1831799087]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 45, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="Camera3D/DirectionalLight3D" unique_id=1678544557]
+environment = SubResource("Environment_1bvp3")
+
+[node name="manequin" parent="Camera3D/DirectionalLight3D" unique_id=1529180204 instance=ExtResource("1_ig7tw")]
+transform = Transform3D(1, 0, 0, 0, 0.9848069, -0.1736481, 0, 0.1736481, 0.9848069, 29.958435, -46.60676, -2.0372076)

@@ -1,0 +1,56 @@
+# ── Virtual environments ──
+venv/
+venv_wsl/
+.venv/
+env/
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# ── Logs & temp ──
+*.log
+logs/
+*.tmp
+*.bak
+
+# ── Godot engine cache (import metadata .import files ARE committed) ──
+.godot/
+
+# ── Recorded training data (synced via Drive, not Git) ──
+data/
+*.npy
+
+# ── Trained model weights (synced via Drive, not Git) ──
+models/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+
+# ── Secrets ──
+.env
+.env.*
+!.env.example
+
+# ── Notebook checkpoints ──
+.ipynb_checkpoints/
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── rclone (should live in user profile, guard against accidents) ──
+rclone.conf

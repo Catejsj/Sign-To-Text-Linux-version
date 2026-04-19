@@ -1,0 +1,1114 @@
+================================================================================
+FILE: C:\Users\User\OneDrive\Attachments\Desktop\Sign-to-Text_Setup_Guide.docx
+================================================================================
+ 
+ 
+Sign-to-Text
+Cambodian Sign Language Recognition System
+Setup & Replication Guide
+ 
+ 
+ 
+
+1. System Overview
+This system converts Cambodian Sign Language into text in real-time using a webcam and a 3D mannequin pipeline. No dedicated motion capture hardware is needed.
+ 
+ 
+Data Flow
+ 
+Webcam (Windows)
+  ↓  UDP port 9999
+WSL Processing Layer
+  ↓  UDP port 8888
+Godot Visualization (Windows)
+ 
+ 
+2. Requirements
+Hardware
+PC with Windows 10 or 11 (64-bit)
+WSL2 installed (Ubuntu)
+Webcam (built-in laptop cam works fine)
+GPU recommended — NVIDIA RTX series ideal (tested on RTX 4060)
+8 GB RAM minimum, 16 GB recommended
+ 
+Software to Install
+Python 3.10/3.11: https://www.python.org/downloads/
+Godot 4.3: https://godotengine.org/download/windows/
+Git: https://git-scm.com/downloads
+Mixamo: https://www.mixamo.com
+ 
+ 
+3. Getting the Code
+Extract the Zip File
+ 
+ 
+4. Windows Setup
+Step-by-Step
+ 
+ 
+Full Commands
+ 
+cd C:\Users\YourName\Documents\Sign-to-Text
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install -r requirements.txt
+ 
+ 
+Test Camera
+Before doing anything else, confirm your camera and MediaPipe work:
+ 
+.\venv\Scripts\Activate.ps1
+python test_camera.py
+ 
+A window should open showing your camera feed with a green skeleton overlay on your body and blue dots on your hands. Press Q to close it.
+ 
+ 
+5. WSL Setup
+Access Your Project from WSL
+WSL can read your Windows files directly. Create a shortcut to the project:
+ 
+# In WSL terminal
+ln -s /mnt/c/Users/YourName/Documents/Sign-to-Text ~/khmer_project
+cd ~/khmer_project
+ 
+ 
+ 
+Install Python Dependencies in WSL
+ 
+cd ~/khmer_project
+ 
+# Install venv support (Kali Linux)
+sudo apt update
+sudo apt install -y python3-full python3-pip
+ 
+# Create WSL virtual environment
+python3 -m venv venv_wsl
+source venv_wsl/bin/activate
+ 
+# Install WSL dependencies
+pip install --upgrade pip
+pip install -r requirements_wsl.txt
+ 
+# Verify
+python -c "import numpy; import scipy; print('OK')"
+ 
+ 
+ 
+6. Godot Setup
+Install Godot
+ 
+Get the Y-Bot Mannequin
+ 
+Create the Godot Project
+ 
+Import Y-Bot and Set Up Scene
+ 
+Attach the Receiver Script
+Select the Main node in the scene tree, then click the Attach Script icon (scroll icon). Set the path to scripts/main.gd and click Create. Delete all default content and paste the script from the scripts/main.gd file inside the zip.
+ 
+ 
+7. Network Configuration
+WSL gets a new IP address every time Windows reboots. You must update the config before running the system after each reboot.
+ 
+Auto-Fix (Recommended)
+Run this on Windows PowerShell after every reboot:
+ 
+cd C:\Users\YourName\Documents\Sign-to-Text
+.\venv\Scripts\Activate.ps1
+python update_ips.py
+ 
+The script automatically detects both the WSL IP and the Windows host IP, then updates config\settings.json for you.
+ 
+Manual Fix
+If the auto script fails, get the WSL IP manually and update the config:
+ 
+# In WSL terminal — get WSL IP
+hostname -I | awk '{print $1}'
+# Copy the output (e.g. 172.19.90.246)
+ 
+# Then edit config/settings.json on Windows
+# Update the wsl_ip field with the copied IP
+ 
+ 
+Firewall
+If WSL is not receiving data from Windows, you may need to allow UDP through the Windows firewall. Run this once in PowerShell as Administrator:
+ 
+New-NetFirewallRule -DisplayName 'Sign-to-Text UDP' -Direction Inbound -Protocol UDP -LocalPort 9999,8888 -Action Allow
+ 
+ 
+8. Running the System
+ 
+Terminal 1 — WSL Processing Layer
+ 
+cd ~/khmer_project
+source venv_wsl/bin/activate
+python src/main_wsl.py
+ 
+You should see: Listening on 0.0.0.0:9999 and Waiting for data from Windows...
+ 
+Terminal 2 — Windows Capture Layer
+Open a new PowerShell window:
+ 
+cd C:\Users\YourName\Documents\Sign-to-Text
+.\venv\Scripts\Activate.ps1
+python run_windows.py
+ 
+A window will open showing your camera feed with a green skeleton on your body and blue dots on your hands.
+ 
+Terminal 3 — Godot Visualization
+Open Godot, open your project, and click the Play button (triangle) at the top right. The Output panel should show the skeleton found message and packet counts climbing.
+ 
+Quick Launch Scripts
+For convenience, you can use the included launcher scripts instead of typing commands every time:
+ 
+# Windows — double-click or run in PowerShell
+start_windows.bat
+ 
+# WSL
+./start_wsl.sh
+ 
+ 
+9. What You Should See
+Windows Camera Window
+Green skeleton lines on your body (shoulders, arms, torso)
+Blue dots and lines on your fingers
+CAPTURING text in green when your body is detected
+Packet count increasing in the top-left
+ 
+WSL Terminal
+ 
+Frames: 300 | Processed: 298 (99.3%) | FPS: 30.1 | To Godot: 298
+ 
+Processed and To Godot should both be close to the Frames count. If To Godot stays at 0 after running update_ips.py, check the troubleshooting section.
+ 
+Godot Window
+The Y-Bot mannequin standing in a grey/brown environment
+Arms moving when you move your arms
+Hands following your hand positions
+Packet count printing in the Output panel every 60 frames
+ 
+10. Troubleshooting
+WSL shows To Godot: 0
+ 
+WSL shows Processed: 0
+This usually means the pose landmark keys are integers but the code expects strings. This was a known bug that was fixed — make sure you have the latest version of the zip file.
+ 
+MediaPipe skeleton disappears when moving fast
+Lower min_tracking_confidence in config/settings.json to 0.2
+Improve your lighting — face a window or lamp
+Make sure your full upper body is visible in frame
+Move slightly slower — MediaPipe struggles with motion blur
+ 
+Mannequin arms look twisted or backwards
+This is a coordinate system mismatch. Make sure you are using the latest version of mapper.py from the zip file which includes the mediapipe_to_godot coordinate conversion.
+ 
+Godot says Bone not found
+Your Y-Bot import may have different bone name formatting. Check the Output panel when Godot starts — it prints all bone names. The script expects names like mixamorig_RightArm (underscore, not colon). If your import uses different names, update the BONE_MAP dictionary in the Godot script.
+ 
+Camera not found
+Open config/settings.json and try changing camera_id to 1 or 2. Some systems have virtual cameras registered as device 0.
+ 
+python3-venv not available in WSL
+ 
+sudo apt update
+sudo apt install -y python3-full
+# If that fails:
+pip3 install --user --break-system-packages virtualenv
+python3 -m virtualenv venv_wsl
+ 
+ 
+11. Project File Structure
+ 
+Sign-to-Text/
+├── src/
+│   ├── capture.py          Windows: camera + MediaPipe tracking
+│   ├── send_to_wsl.py      Windows: UDP sender to WSL
+│   ├── utils.py            Windows: config and logging helpers
+│   ├── mapper.py           WSL: coordinate normalization + bone math
+│   ├── bridge.py           WSL: UDP sender to Godot
+│   ├── utils_wsl.py        WSL: math utilities + AI framework placeholder
+│   └── main_wsl.py         WSL: main processing loop
+├── config/
+│   └── settings.json       All configuration (IPs, camera, thresholds)
+├── logs/                   Log files (auto-created)
+├── data/                   Training data (future)
+├── models/                 AI models (future)
+├── run_windows.py          Windows entry point
+├── update_ips.py           Auto-fix WSL/Windows IP addresses
+├── start_windows.bat       Windows quick launcher
+├── start_wsl.sh            WSL quick launcher
+├── requirements.txt        Windows Python dependencies
+├── requirements_wsl.txt    WSL Python dependencies
+└── test_*.py               Various diagnostic scripts
+ 
+ 
+Key Config Options in settings.json
+ 
+12. Getting Updates
+When an updated version of the project is shared, just extract the new zip file over your existing folder. Your config\settings.json will be overwritten so make a backup of it first if you changed any settings.
+ 
+ 
+# Before extracting a new zip, backup your config
+# Copy config\settings.json somewhere safe
+# Extract new zip
+# Restore your config\settings.json
+# Run update_ips.py to fix IPs again
+ 
+ 
+ 
+13. What Comes Next
+Current Status
+✅ Complete
+✅ Complete
+✅ Complete
+✅ Complete
+ 
+Planned
+⏳ In progress
+⏳ Planned
+⏳ Planned
+⏳ Planned
+⏳ Planned
+ 
+ 
+
+Sign-to-Text — Cambodian Sign Language Recognition System
+CamTech University  |  Sign-to-Text Project
+
+--- TABLE 0 ---
+Layer | Where it runs | What it does
+Capture | Windows (Python) | Webcam + MediaPipe body/hand tracking
+Processing | WSL (Python) | Normalize coordinates, calculate bone rotations
+Visualization | Windows (Godot 4) | Drive 3D Y-Bot mannequin in real-time
+AI Recognition | WSL (Python) | Classify sign sequences (future phase)
+
+--- TABLE 1 ---
+⚠️ IMPORTANT: Every time you reboot your PC, run update_ips.py on Windows first. WSL gets a new IP address on every reboot and this script fixes the config automatically.
+
+--- TABLE 2 ---
+💡 NOTE: Python 3.12 has compatibility issues with some MediaPipe versions. Stick to 3.10 or 3.11 to avoid headaches.
+
+--- TABLE 3 ---
+1 | Download the Sign-to-Text.zip file shared with you
+2 | Right-click the zip and select Extract All
+3 | Choose a destination folder — recommended: C:\Users\YourName\Documents\Sign-to-Text
+4 | Click Extract
+5 | Open the extracted folder and confirm you see files like run_windows.py, requirements.txt, src folder, config folder etc.
+
+--- TABLE 4 ---
+💡 NOTE: Keep the project folder path simple with no spaces if possible. If you must use spaces, always wrap the path in quotes when using PowerShell.
+
+--- TABLE 5 ---
+1 | Open PowerShell and navigate to the project folder
+2 | Create a Python virtual environment: python -m venv venv
+3 | If you get an execution policy error run: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+4 | Activate the virtual environment: .\venv\Scripts\Activate.ps1
+5 | Install dependencies: pip install -r requirements.txt
+6 | Verify installation: python -c "import cv2; import mediapipe; print('OK')"
+
+--- TABLE 6 ---
+⚠️ IMPORTANT: If no camera is found, open config\settings.json and try changing camera_id from 0 to 1 or 2. Some laptops have virtual cameras that take slot 0.
+
+--- TABLE 7 ---
+💡 NOTE: Replace YourName with your actual Windows username. The ln -s command creates a shortcut so you can just type cd ~/khmer_project instead of the full path every time.
+
+--- TABLE 8 ---
+⚠️ IMPORTANT: If python3-full is not available, try: sudo apt install python3-dev then pip3 install --user --break-system-packages virtualenv
+
+--- TABLE 9 ---
+1 | Download Godot 4.3 Standard 64-bit from https://godotengine.org/download/windows/
+2 | Create a folder C:\Godot and move the downloaded .exe there
+3 | Rename it to Godot.exe for convenience
+4 | Double-click to open — no installation needed, it is portable
+
+--- TABLE 10 ---
+1 | Go to https://www.mixamo.com and sign in (free Adobe account)
+2 | Click Characters at the top
+3 | Search for Y Bot and click on it
+4 | Click Download — Format: FBX for Unity, Pose: T-Pose
+5 | Save the downloaded .fbx file somewhere you can find it
+
+--- TABLE 11 ---
+1 | Open Godot.exe — the Project Manager appears
+2 | Click New Project
+3 | Set Project Name to khmer_sign_mannequin
+4 | Set Project Path to your preferred location
+5 | Set Renderer to Forward+
+6 | Click Create & Edit
+
+--- TABLE 12 ---
+1 | In the FileSystem panel (bottom-left), right-click and create folders: scripts, models, scenes
+2 | Drag your downloaded ybot.fbx file into the models folder
+3 | Godot will import it automatically — wait for the spinner to finish
+4 | Click the 3D Scene button at the top to create a new 3D scene
+5 | Right-click the root Node3D and rename it to Main
+6 | Drag the imported Y-Bot model from the models folder into the scene viewport
+7 | Add a Camera3D child to Main — set Position to X:0 Y:1.5 Z:3 and Rotation X to -10
+8 | Add a DirectionalLight3D child to Main — set Rotation X to -30, Y to 45
+9 | Save the scene as scenes/main.tscn with Ctrl+S
+
+--- TABLE 13 ---
+💡 NOTE: The script auto-detects the Skeleton3D anywhere in the scene so you do not need to manually link anything. It will print all bone names on startup — check the Output panel at the bottom to confirm it found the skeleton.
+
+--- TABLE 14 ---
+⚠️ IMPORTANT: Always start in this exact order: WSL first, then Windows, then Godot. If you start Windows before WSL, the first packets get lost.
+
+--- TABLE 15 ---
+1 | Run update_ips.py on Windows to fix the IP addresses
+2 | Restart WSL and Windows scripts in the correct order
+3 | If still failing, check that Windows Firewall allows UDP on ports 9999 and 8888
+
+--- TABLE 16 ---
+Setting | Default | What it does
+capture.camera_id | 0 | Which camera to use. Try 1 or 2 if 0 fails
+capture.width / height | 640 x 480 | Camera resolution. Use 1280x720 for better quality
+capture.window_scale | 2.0 | How big the preview window appears on screen
+mediapipe.min_tracking_confidence | 0.3 | Lower = tracks harder, more CPU. Raise if false detections
+network.wsl_ip | auto | Set by update_ips.py — do not change manually
+network.wsl_port | 9999 | Windows sends to WSL on this port
+network.godot_port | 8888 | WSL sends to Godot on this port
+smoothing.enabled | true | One Euro Filter — reduces jitter on skeleton
+ai_framework.enabled | false | Enable when AI model is ready (future)
+
+--- TABLE 17 ---
+⚠️ IMPORTANT: The settings.json file contains your machine-specific IP addresses. Every machine is different so do not copy settings.json from another person's computer — always run update_ips.py on your own machine.
+
+--- TABLE 18 ---
+💡 NOTE: The AI framework placeholder is already in utils_wsl.py. When the model is ready, set ai_framework.enabled to true in settings.json and provide the model path.
+
+================================================================================
+FILE: C:\Users\User\OneDrive\Attachments\Desktop\doc1_setup.docx
+================================================================================
+Khmer Sign Language Recognizer
+System Setup Guide — Windows + WSL Dual Pipeline
+|  Version 2.0  |  March 2026
+
+1. System Overview
+This guide covers setting up the full dual-pipeline motion capture system from scratch. The system uses two separate tracking engines running in parallel — RTMPose for body and arm tracking on GPU, and MediaPipe Holistic for detailed hand and finger tracking on CPU. Both streams are composited into one display and merged before sending to Godot Engine for 3D avatar visualization.
+
+Architecture summary:
+Windows side: Camera capture, RTMPose (GPU), MediaPipe Hands (CPU), dual pipeline merge, UDP sender
+WSL side: Coordinate normalization, bone transform calculation, UDP forwarder to Godot
+Godot Engine: 3D avatar visualization, receives bone data via UDP port 8888
+
+2. System Requirements
+2.1 Hardware
+NVIDIA GPU (GTX 1660 or better recommended, RTX series preferred)
+8GB RAM minimum, 16GB+ recommended
+Webcam (built-in or USB)
+Windows 10/11 with WSL2 enabled
+
+2.2 Software to Install
+Install all of the following before proceeding. Links are provided in order.
+
+
+3. CUDA Setup — Critical Step
+RTMPose requires CUDA 12 runtime DLLs to run on GPU. Without this step the model falls back to CPU and runs at 2-3 FPS instead of 30+ FPS. Follow these steps exactly.
+
+3.1 Add CUDA to System PATH (Run PowerShell as Administrator)
+Right-click the Start menu, select 'Windows PowerShell (Admin)' or 'Terminal (Admin)', then run:
+
+[System.Environment]::SetEnvironmentVariable("PATH", $env:PATH + ";C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin", [System.EnvironmentVariableTarget]::Machine)
+
+NOTE: If you get 'access denied', make sure you opened PowerShell as Administrator (right-click → Run as administrator).
+
+3.2 Verify CUDA DLLs are findable
+Close and reopen PowerShell (normal, not admin), then run:
+where cudart64_12.dll
+It should print the path to the CUDA bin folder. If it shows nothing, restart your PC and try again.
+
+3.3 Verify GPU is accessible to Python
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+You should see CUDAExecutionProvider in the list. If not, check that cuDNN was installed correctly.
+
+4. Windows Python Environment Setup
+4.1 Navigate to project folder and create virtual environment
+cd "C:\path\to\your\project\khmer_sign_recognizer"
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+NOTE: If Activate.ps1 is blocked, run this first: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+4.2 Install all Windows dependencies
+pip install opencv-python mediapipe numpy
+pip install onnxruntime-gpu==1.19.2
+pip install rtmlib
+pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12
+
+4.3 Verify RTMPose loads on GPU
+Create a file called test_gpu.py and paste this:
+from rtmlib import Wholebody
+import numpy as np
+w = Wholebody(to_openpose=False, mode='balanced', backend='onnxruntime', device='cuda')
+dummy = np.zeros((480,640,3), dtype=np.uint8)
+kp, sc = w(dummy)
+print('RTMPose GPU ready, keypoints shape:', kp.shape)
+
+Run it:
+python test_gpu.py
+First run downloads model files (~300MB). Subsequent runs start instantly. You should see no CUDA errors and a keypoints shape printed.
+
+5. WSL Environment Setup
+5.1 Open WSL terminal and navigate to project
+cd ~/khmer_project
+python3 -m venv venv_wsl
+source venv_wsl/bin/activate
+
+5.2 Install WSL dependencies
+pip install numpy scipy
+pip install --break-system-packages numpy scipy  # if above fails
+
+5.3 Update IP addresses (run every time after reboot)
+WSL IP changes after every reboot. Run this on Windows before starting:
+python update_ips.py
+This auto-detects the current WSL IP and Windows host IP and updates config/settings.json.
+
+6. Running the Full Pipeline
+Always start in this exact order. Starting out of order causes UDP packets to be missed.
+
+
+6.1 Common Errors and Fixes
+
+7. Project File Structure
+khmer_sign_recognizer/
+  config/settings.json          — IP addresses and capture settings
+  src/capture.py                — Dual pipeline capture (RTMPose + MediaPipe)
+  src/mapper.py                 — Coordinate normalization and bone math
+  src/bridge.py                 — UDP sender to Godot
+  src/main_wsl.py               — WSL entry point
+  src/utils_wsl.py              — Smoothing filters and helpers
+  run_windows.py                — Windows entry point
+  update_ips.py                 — Auto IP detection for WSL
+  requirements.txt              — Python dependencies
+
+The Godot project is separate. Place the GDScript in your main Node3D scene script.
+
+--- TABLE 0 ---
+Software | Download Link | Notes
+Python 3.10+ | python.org/downloads | Check 'Add to PATH' during install
+CUDA Toolkit 12.6 | developer.nvidia.com/cuda-12-6-0-download-archive | Windows x86_64 exe local
+cuDNN 9.x | developer.nvidia.com/cudnn-downloads | Windows x86_64 exe installer
+Git for Windows | git-scm.com/download/win | Default settings fine
+Godot Engine 4.6.1 | godotengine.org/download | Standard version, not .NET
+MSVC Redistributable | aka.ms/vs/17/release/vc_redist.x64.exe | Run directly, 30 seconds
+
+--- TABLE 1 ---
+Step 1 | Open WSL terminal. Run: cd ~/khmer_project && source venv_wsl/bin/activate && python src/main_wsl.py
+Step 2 | Open Windows PowerShell. Run: cd to project folder, activate venv, run: python run_windows.py
+Step 3 | Open Godot Engine. Open your project, click Play (F5). Check Output panel for 'UDP listening on port 8888'.
+Step 4 | Stand in front of webcam. The capture window will open showing RTMPose body skeleton + MediaPipe hand skeleton overlaid together.
+Step 5 | Check Godot Output panel. You should see 'packets: 120 | frame XXXX' counting up every 2 seconds.
+
+--- TABLE 2 ---
+Error | Fix
+CUDA DLL not found | Run update_ips.py, then restart PC and verify CUDA PATH as in Section 3
+To Godot: 0 in WSL stats | Run update_ips.py on Windows, restart WSL and Windows scripts
+Camera failed to open | Change camera_id in config/settings.json from 0 to 1
+Activate.ps1 blocked | Run: Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+RTMPose very laggy | CUDA not working, check Section 3 again. Should be 30+ FPS on any RTX GPU
+Godot no packets arriving | Check Windows Firewall — allow Python through private network
+
+================================================================================
+FILE: C:\Users\User\OneDrive\Attachments\Desktop\doc2_godot.docx
+================================================================================
+Godot Engine Setup Guide
+3D Avatar Visualization — Khmer Sign Language Recognizer
+                                                |  Version 2.0  |  March 2026
+
+1. Download and Install Godot
+Download Godot Engine 4.6.1 Standard (not the .NET version) from godotengine.org/download. The download is a single portable .exe file — no installation needed, just extract and run it.
+
+NOTE: Do NOT use the .NET/Mono version. The standard version is what the GDScript code in this guide was written for.
+
+2. Import the Y-Bot Mannequin from Mixamo
+The avatar used is the Y-Bot from Adobe Mixamo. Follow these steps to get it into Godot.
+
+2.1 Download Y-Bot from Mixamo
+Go to mixamo.com and create a free Adobe account if you don't have one.
+Search for 'Y Bot' in the Characters section.
+Click Y Bot, then click the Download button.
+In the download dialog, set Format to FBX for Unity, Pose to T-pose, then click Download.
+
+NOTE: Use 'FBX for Unity' format even though we are using Godot. This format gives cleaner bone names.
+
+2.2 Import FBX into Godot
+Open Godot and create a new project or open your existing one.
+Drag the downloaded .fbx file into the Godot FileSystem panel (bottom left).
+Godot will automatically import it. Wait for the import to finish.
+In the FileSystem, right-click the imported .fbx and select 'New Inherited Scene'.
+This opens the mannequin scene. Save it as mannequin.tscn.
+
+2.3 Verify bone names
+Click on the Skeleton3D node inside the imported mannequin scene. In the Inspector panel you should see a bone list. The bone names should look like: mixamorig_Hips, mixamorig_Spine, mixamorig_LeftArm, mixamorig_RightArm, etc.
+
+WARNING: If the bone names show colons instead of underscores (e.g. mixamorig:LeftArm instead of mixamorig_LeftArm) the import settings are different. Go to the import tab and reimport with default settings.
+
+3. Scene Structure
+Your Godot scene should be structured as follows. The exact node names matter for the script to find the skeleton automatically.
+
+Node3D (main scene root — attach the GDScript here)
+  Camera3D
+    DirectionalLight3D
+      mannequin (the imported Y-Bot scene)
+        Armature
+          Skeleton3D  <- this is what the script searches for
+
+NOTE: The script uses a recursive search to find Skeleton3D anywhere in the scene tree, so the exact nesting does not have to match exactly as long as Skeleton3D exists somewhere under the root node.
+
+4. Attach the GDScript
+Click on the root Node3D in the Scene panel.
+In the Inspector, click the Script icon (scroll icon) or press Ctrl+Shift+A.
+Select 'New Script', keep GDScript selected, click Create.
+Delete all existing code in the script editor.
+Copy and paste the full script from Section 5 of this document.
+Save with Ctrl+S.
+
+5. Full GDScript — Copy This Exactly
+This is the complete script. Copy every line including the blank lines. Indentation uses tabs not spaces — make sure your editor does not convert tabs to spaces.
+
+extends Node3D
+ 
+var udp := PacketPeerUDP.new()
+const PORT := 8888
+ 
+var skeleton: Skeleton3D = null
+var packets_received := 0
+var last_frame_id := 0
+ 
+const SCALE := 2.0
+ 
+var rest_angles: Dictionary = {}
+ 
+ 
+func _ready() -> void:
+    print("=".repeat(60))
+    print("KHMER SIGN RECOGNIZER - GODOT VISUALIZATION")
+    print("=".repeat(60))
+    skeleton = _find_skeleton(self)
+    if skeleton == null:
+        push_error("No Skeleton3D found!")
+        return
+    print("Skeleton found: ", skeleton.get_path())
+    _cache_rest_angles()
+    var err := udp.bind(PORT)
+    if err == OK:
+        print("UDP listening on port ", PORT)
+    else:
+        push_error("UDP bind failed")
+    print("=".repeat(60))
+ 
+ 
+func _cache_rest_angles() -> void:
+    var arm_bones = [
+        "mixamorig_LeftArm", "mixamorig_RightArm",
+        "mixamorig_LeftForeArm", "mixamorig_RightForeArm"
+    ]
+    for bone_name in arm_bones:
+        var bone_idx := skeleton.find_bone(bone_name)
+        if bone_idx == -1:
+            continue
+        var global_basis := Basis.IDENTITY
+        var idx := bone_idx
+        var chain: Array = []
+        while idx != -1:
+            chain.push_front(idx)
+            idx = skeleton.get_bone_parent(idx)
+        for cidx in chain:
+            global_basis = global_basis * skeleton.get_bone_rest(cidx).basis
+        var world_dir := global_basis.y.normalized()
+        rest_angles[bone_name] = atan2(world_dir.x, world_dir.y)
+ 
+ 
+func _process(_delta: float) -> void:
+    while udp.get_available_packet_count() > 0:
+        var raw  := udp.get_packet()
+        var text := raw.get_string_from_utf8()
+        var json := JSON.new()
+        if json.parse(text) == OK:
+            _apply_bone_data(json.get_data())
+            packets_received += 1
+            if packets_received % 120 == 0:
+                print("packets: %d | frame %d" % [packets_received, last_frame_id])
+ 
+ 
+func _apply_bone_data(data: Dictionary) -> void:
+    if data.has("frame_id"):
+        last_frame_id = data["frame_id"]
+    if skeleton == null:
+        return
+    var bones: Dictionary = data.get("bone_transforms", {})
+    if bones.is_empty():
+        return
+    var l_shoulder := _get_pos(bones, "pos_left_shoulder")
+    var r_shoulder := _get_pos(bones, "pos_right_shoulder")
+    var l_elbow    := _get_pos(bones, "pos_left_elbow")
+    var r_elbow    := _get_pos(bones, "pos_right_elbow")
+    var l_wrist    := _get_pos(bones, "pos_left_wrist")
+    var r_wrist    := _get_pos(bones, "pos_right_wrist")
+    if l_shoulder != null and l_elbow != null:
+        _point_bone("mixamorig_LeftArm", l_shoulder, l_elbow)
+    if l_elbow != null and l_wrist != null:
+        _point_bone("mixamorig_LeftForeArm", l_elbow, l_wrist)
+    if r_shoulder != null and r_elbow != null:
+        _point_bone("mixamorig_RightArm", r_shoulder, r_elbow)
+    if r_elbow != null and r_wrist != null:
+        _point_bone("mixamorig_RightForeArm", r_elbow, r_wrist)
+    if data.has("finger_transforms"):
+        var fingers: Dictionary = data["finger_transforms"]
+        for finger_key in fingers.keys():
+            var fd: Dictionary    = fingers[finger_key]
+            var bone_name: String = fd["bone_name"]
+            var rot_arr: Array    = fd["rotation"]
+            var q := Quaternion(rot_arr[0], rot_arr[1], rot_arr[2], rot_arr[3])
+            q = q.normalized()
+            _apply_finger_rotation(bone_name, q)
+ 
+ 
+func _get_pos(bones: Dictionary, key: String) -> Vector3:
+    if not bones.has(key):
+        return Vector3.ZERO
+    var p: Dictionary = bones[key]
+    return Vector3(-p["x"] * SCALE, -p["y"] * SCALE, 0.0)
+ 
+ 
+func _point_bone(bone_name: String, from_pos: Vector3, to_pos: Vector3) -> void:
+    var bone_idx := skeleton.find_bone(bone_name)
+    if bone_idx == -1:
+        return
+    var dir := (to_pos - from_pos)
+    dir.z = 0.0
+    if dir.length() < 0.001:
+        return
+    dir = dir.normalized()
+    var target_angle: float = atan2(dir.x, dir.y)
+    var rest_angle: float   = float(rest_angles.get(bone_name, 0.0))
+    var delta_angle: float  = -(target_angle - rest_angle)
+    var q    := Quaternion(Vector3(0, 0, 1), delta_angle)
+    var rest := skeleton.get_bone_rest(bone_idx)
+    var new_pose := rest
+    new_pose.basis = Basis(q) * rest.basis
+    skeleton.set_bone_pose(bone_idx, new_pose)
+ 
+ 
+func _apply_finger_rotation(bone_name: String, q: Quaternion) -> void:
+    var bone_idx := skeleton.find_bone(bone_name)
+    if bone_idx == -1:
+        return
+    var rest     := skeleton.get_bone_rest(bone_idx)
+    var new_pose := rest
+    new_pose.basis = Basis(q) * rest.basis
+    skeleton.set_bone_pose(bone_idx, new_pose)
+ 
+ 
+func _find_skeleton(node: Node) -> Skeleton3D:
+    if node is Skeleton3D:
+        return node
+    for child in node.get_children():
+        var result := _find_skeleton(child)
+        if result != null:
+            return result
+    return null
+
+6. How the Script Works
+6.1 _cache_rest_angles()
+This function runs once at startup and walks the full bone chain from the skeleton root to each arm bone. It accumulates the world-space rotation of each bone by multiplying all the parent rest poses together. The result tells us the true resting direction of each arm bone in world space — for this Y-Bot the left arm rests at +90 degrees (pointing right) and the right arm at -90 degrees (pointing left) in the XY plane.
+Without caching these angles, every rotation calculation would be wrong because Mixamo bakes a 90-degree offset into the bone hierarchy that we have to compensate for.
+
+6.2 _get_pos()
+Converts the joint positions sent from WSL into Godot world space. WSL sends normalized coordinates where X increases toward the subject's left side and Y increases downward (pixel coordinate convention). Godot uses X increasing right and Y increasing upward. The function flips both axes and scales by SCALE (default 2.0) to make the movement range visible in the 3D viewport.
+
+6.3 _point_bone()
+This is the core rotation function. It calculates a 2D angle in the XY plane from the joint position to the next joint position, then computes the delta between that angle and the bone's cached rest angle. This delta is applied as a rotation around the Z axis only. By constraining rotation to Z axis only we prevent the arms from bending forward or backward into the screen, which was the main bug from not having real depth data from a 2D camera.
+
+6.4 _apply_finger_rotation()
+Fingers use a different approach from arms because finger data comes from MediaPipe as quaternions (rotations) not as positions. The quaternion is applied directly on top of the bone rest pose. This works well for fingers because MediaPipe's hand landmark model produces reliable 3D finger orientations.
+
+7. Running and Testing
+7.1 Start order
+Start WSL pipeline first (main_wsl.py)
+Start Windows capture (run_windows.py)
+Press F5 in Godot to run the scene
+
+7.2 What to check in Godot Output panel
+Should print: Skeleton found: /root/main/...
+Should print: UDP listening on port 8888
+After a few seconds: packets: 120 | frame XXXX
+
+WARNING: If you see 'No Skeleton3D found!' check that your mannequin is properly added to the scene and the FBX was imported correctly.
+
+7.3 Adjusting SCALE
+The SCALE constant at the top of the script (default 2.0) controls how much the arm movements are amplified. If arms move too little, increase it. If they overshoot, decrease it. Values between 1.5 and 3.0 work well depending on how far you stand from the camera.
+
+================================================================================
+FILE: C:\Users\User\OneDrive\Attachments\Desktop\doc3_training.docx
+================================================================================
+AI Training Workflow
+Khmer Sign Language Recognition — Multi-Modal Training Pipeline
+                                                 |  Version 2.0  |  March 2026
+
+1. Overview and Research Context
+This document describes the complete AI training pipeline for the Khmer Sign Language (KSL) recognition system. The approach is novel in that it uses a 3D mannequin preprocessing step — real video is converted to a standardized grey avatar before the AI processes it. This removes background noise, lighting variation, and person-to-person differences, which is the main challenge for sign language recognition in low-resource languages like Khmer.
+
+The training uses three streams of data simultaneously — skeleton sequences from the capture pipeline, raw video landmarks as a secondary signal, and text descriptions from a vision-language model (DeepSeek-VL2) reading a Khmer sign language dictionary. This multi-modal approach compensates for the almost complete lack of existing labeled Khmer sign language datasets.
+
+NOTE: Khmer sign language has almost no publicly available labeled dataset as of early 2026. The closest existing work is by Ponleur Veng at IDRI Cambodia (2024) with 2,645 sign videos. Our system must function with far less data, which is why multi-modal training is essential.
+
+2. What the AI Needs to Learn
+The goal is a model that takes a sequence of skeleton joint positions (60 frames) and outputs a predicted Khmer sign word. The input is not video — it is normalized 3D joint coordinates from our pipeline.
+
+Input shape: 60 frames x 48 joints x 3 coordinates = (60, 48, 3) tensor per sequence.
+The 48 joints break down as follows:
+6 body joints: left/right shoulder, elbow, wrist
+21 left hand joints: MediaPipe hand landmarks 0-20
+21 right hand joints: MediaPipe hand landmarks 0-20
+
+Output: probability distribution over the sign vocabulary (50-100 signs initially).
+
+3. Three-Stream Training Architecture
+The model is trained with three separate data streams that all point to the same label. This is called multi-modal contrastive learning and is the same core concept behind how OpenAI's CLIP model works. The advantage is the model builds a stronger internal representation of each sign because it learns from three different angles at once.
+
+Stream 1 — Skeleton Sequences (Primary)
+This is the main input. 60-frame windows of normalized joint positions recorded through the capture pipeline. Each sequence is labeled with the sign being performed. This is the only stream used at inference time — the other two are training-only.
+
+Shape: (60, 48, 3) — frames x joints x xyz
+Format: numpy .npy files, one per sequence
+Label: integer index into vocabulary list
+
+Stream 2 — DeepSeek-VL2 Dictionary Descriptions (Auxiliary Text)
+A Khmer sign language dictionary contains illustrated images of each sign with the hand shape and movement described visually. DeepSeek-VL2 is a vision-language model that can read these images and generate text descriptions of what the hand is doing. These descriptions become text labels that the model learns to associate with the skeleton sequences.
+
+Example: the dictionary image for the sign meaning 'hello' might produce the description 'right hand open palm facing forward, raised to head height, slight wave motion'. The model learns that sequences with that motion pattern correspond to that text description which corresponds to the sign label.
+
+NOTE: DeepSeek-VL2-Tiny can run on an 8GB GPU. The full model requires 40GB+. Use the Tiny variant locally or call the API for the larger model.
+
+KNOWN LIMITATION: DeepSeek-VL2 text descriptions of Khmer dictionary images may not always be accurate, especially for motion descriptions since the dictionary shows static images. The model must learn to bridge static illustration descriptions to dynamic movement sequences. This is an open research problem.
+RESEARCH QUESTION: How can we generate better motion descriptions from static dictionary images? Is there a way to infer movement from the static pose illustration plus the written Khmer description?
+
+Stream 3 — Raw Landmark Sequences (Secondary Video)
+The same signing sessions filmed for Stream 1 also produce raw MediaPipe landmark coordinates before normalization. These are stored separately and used as a secondary training signal. The model sees both the normalized version (Stream 1) and the raw version (Stream 3) of the same sign, which forces it to learn sign identity that is robust to different body sizes and camera distances.
+
+KNOWN LIMITATION: Stream 3 coordinates are NOT person-agnostic. A tall person produces different raw coordinates than a short person for the same sign. The model may overfit to signer-specific features if Stream 3 is weighted too heavily during training.
+RESEARCH QUESTION: What is the optimal weighting between Stream 1 (normalized) and Stream 3 (raw) during training? Should the weighting be adaptive based on how much variation exists in the training set?
+
+4. Data Collection Protocol
+4.1 Minimum dataset requirements
+
+4.2 Recording procedure
+Run the full capture pipeline (WSL + Windows + Godot).
+Start the data collection script (src/collect_data.py — see Section 6).
+Enter the sign label when prompted (e.g. 'hello', 'thank you', 'water').
+Press SPACE to start recording a 2-second window (60 frames at 30 FPS).
+Perform the sign naturally during the recording window.
+Press SPACE again to stop. The sequence is saved automatically.
+Repeat for all signs and all signers.
+
+NOTE: Ask signers to stand 1.5 to 2 meters from the camera. Both hands and the upper body should be visible. Good lighting from the front, not backlit.
+
+4.3 Data augmentation
+Since Khmer sign data is scarce, augmentation is critical. The following augmentations are applied automatically during training to multiply the effective dataset size without filming anything new.
+Random scale: multiply all joint positions by 0.85 to 1.15
+Random horizontal flip: mirror the entire sequence left-right (simulates left-handed signer)
+Time warping: randomly stretch or compress sequences between 45 and 75 frames then resample to 60
+Gaussian noise: add small random noise to joint positions (sigma=0.01)
+Random rotation: rotate all joints by -15 to +15 degrees around Z axis
+
+KNOWN LIMITATION: Horizontal flip augmentation assumes the sign is symmetric or that both left-handed and right-handed variants are valid for training. For signs that are strictly one-handed this may introduce incorrect samples. A per-sign flip flag should be maintained in the vocabulary list.
+RESEARCH QUESTION: How do we automatically detect which signs are flip-safe versus directionally asymmetric? Can the model itself learn this distinction, or must it be manually annotated?
+
+5. Model Architecture
+5.1 Recommended: Transformer Encoder
+A Transformer encoder with positional encoding is the recommended model. It was the architecture used in the 1st place solution for Google's isolated sign language recognition competition (GISLR 2023) with landmark input identical to ours.
+
+Input: (batch, 60, 144)  — flatten 48 joints x 3 coords
+Positional encoding: learned, length 60
+Encoder layers: 4 layers, 8 attention heads, hidden dim 256
+Pooling: mean across time dimension
+Output: Linear(256, vocab_size) + Softmax
+
+NOTE: Total parameters: approximately 2.1M. Trains in under 30 minutes on Google Colab T4 GPU for a 50-sign vocabulary.
+
+5.2 Baseline: LSTM
+If Transformer is too complex to implement first, start with a 2-layer bidirectional LSTM as baseline.
+Input: (batch, 60, 144)
+BiLSTM: 2 layers, hidden size 256, dropout 0.3
+Pooling: last hidden state
+Output: Linear(512, vocab_size) + Softmax
+
+KNOWN LIMITATION: LSTM requires more training data than Transformer to reach equivalent accuracy. With fewer than 1000 sequences the LSTM tends to overfit and the Transformer generalizes better. This is a known limitation of the LSTM architecture on small sequence datasets.
+RESEARCH QUESTION: Is there a hybrid architecture — LSTM for temporal patterns with attention for cross-frame dependencies — that outperforms both on very small Khmer datasets? This has not been tested for KSL specifically.
+
+5.3 Advanced: Graph Convolutional Network (GCN)
+GCN treats skeleton joints as a graph where edges represent bone connections. It is the highest-accuracy approach in published literature but also the most complex to implement. Recommended as a second iteration after the Transformer baseline is working.
+
+KNOWN LIMITATION: Standard GCN implementations assume a fixed skeleton graph (25 or 33 nodes). Our skeleton has 48 joints with a non-standard topology combining RTMPose body joints and MediaPipe hand joints. The graph adjacency matrix must be manually defined to connect these two different skeleton formats correctly.
+RESEARCH QUESTION: What is the optimal graph structure for combining RTMPose body joints (6 nodes) with MediaPipe hand joints (42 nodes)? Should the wrist joint serve as the bridge node between body and hand graphs, or should a learned adjacency matrix be used?
+
+6. Data Collection Script
+Save this as src/collect_data.py in your project. It hooks into the existing pipeline and saves sequences as numpy files ready for training.
+
+import numpy as np
+import json, os, time, socket
+from pathlib import Path
+
+SEQUENCE_LENGTH = 60  # frames per sequence
+DATA_DIR = Path('data/sequences')
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+def collect_sequence(label: str, udp_port: int = 9998):
+    """Listen on UDP for processed landmark data and save a sequence"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('0.0.0.0', udp_port))
+    sock.settimeout(5.0)
+
+    frames = []
+    print(f'Recording {label}... press ENTER when ready')
+    input()
+    print('Recording started — perform the sign now')
+
+    while len(frames) < SEQUENCE_LENGTH:
+        try:
+            data, _ = sock.recvfrom(65535)
+            msg = json.loads(data.decode())
+            frame_vec = extract_frame_vector(msg)
+            if frame_vec is not None:
+                frames.append(frame_vec)
+                print(f'  Frame {len(frames)}/{SEQUENCE_LENGTH}', end='\r')
+        except socket.timeout:
+            print('Timeout waiting for data')
+            break
+
+    sock.close()
+    if len(frames) == SEQUENCE_LENGTH:
+        seq = np.array(frames, dtype=np.float32)  # (60, 144)
+        label_dir = DATA_DIR / label
+        label_dir.mkdir(exist_ok=True)
+        fname = label_dir / f'{label}_{int(time.time())}.npy'
+        np.save(fname, seq)
+        print(f'Saved: {fname}')
+    else:
+        print(f'Incomplete sequence: only {len(frames)} frames')
+
+def extract_frame_vector(msg: dict) -> np.ndarray:
+    """Flatten all joint positions into a 1D vector (144 values)"""
+    pose = msg.get('normalized_pose', {})
+    lh   = msg.get('left_hand', {})
+    rh   = msg.get('right_hand', {})
+    vec  = []
+    joint_order = ['left_shoulder','right_shoulder','left_elbow',
+                   'right_elbow','left_wrist','right_wrist']
+    for j in joint_order:
+        if j in pose:
+            vec.extend([pose[j]['x'], pose[j]['y'], pose[j]['z']])
+        else:
+            vec.extend([0.0, 0.0, 0.0])
+    for hand in [lh, rh]:
+        for i in range(21):
+            lm = hand.get(str(i), {})
+            vec.extend([lm.get('x',0), lm.get('y',0), lm.get('z',0)])
+    return np.array(vec, dtype=np.float32) if len(vec) == 144 else None
+
+if __name__ == '__main__':
+    label = input('Enter sign label: ').strip().lower()
+    collect_sequence(label)
+
+7. Training Script (Google Colab)
+Run this in a Google Colab notebook. Set runtime to GPU (T4 or A100).
+
+# Cell 1 — Install dependencies
+!pip install torch numpy scikit-learn tqdm
+
+# Cell 2 — Load dataset
+import numpy as np, torch, os
+from pathlib import Path
+
+DATA_DIR = Path('data/sequences')
+vocab = sorted([d.name for d in DATA_DIR.iterdir() if d.is_dir()])
+label_to_idx = {l: i for i, l in enumerate(vocab)}
+print('Vocabulary:', vocab)
+
+sequences, labels = [], []
+for label in vocab:
+    for f in (DATA_DIR / label).glob('*.npy'):
+        seq = np.load(f)  # (60, 144)
+        sequences.append(seq)
+        labels.append(label_to_idx[label])
+
+X = np.stack(sequences)  # (N, 60, 144)
+y = np.array(labels)
+print(f'Dataset: {len(X)} sequences, {len(vocab)} classes')
+
+# Cell 3 — Transformer model
+import torch.nn as nn
+
+class SignTransformer(nn.Module):
+    def __init__(self, input_dim=144, num_classes=50, d_model=256, nhead=8, num_layers=4):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, d_model)
+        self.pos_enc = nn.Embedding(60, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward=512,
+                                                    dropout=0.1, batch_first=True)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
+        self.classifier = nn.Linear(d_model, num_classes)
+
+    def forward(self, x):
+        # x: (batch, 60, 144)
+        positions = torch.arange(x.size(1), device=x.device).unsqueeze(0)
+        x = self.input_proj(x) + self.pos_enc(positions)
+        x = self.transformer(x)
+        x = x.mean(dim=1)  # pool over time
+        return self.classifier(x)
+
+# Cell 4 — Train
+from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.optim import AdamW
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print('Training on:', device)
+
+X_t = torch.FloatTensor(X)
+y_t = torch.LongTensor(y)
+dataset = TensorDataset(X_t, y_t)
+train_size = int(0.8 * len(dataset))
+train_set, val_set = random_split(dataset, [train_size, len(dataset)-train_size])
+train_loader = DataLoader(train_set, batch_size=32, shuffle=True)
+val_loader   = DataLoader(val_set,   batch_size=32)
+
+model = SignTransformer(num_classes=len(vocab)).to(device)
+optimizer = AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+criterion = nn.CrossEntropyLoss()
+
+for epoch in range(100):
+    model.train()
+    total_loss = 0
+    for xb, yb in train_loader:
+        xb, yb = xb.to(device), yb.to(device)
+        optimizer.zero_grad()
+        loss = criterion(model(xb), yb)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    if epoch % 10 == 0:
+        model.eval()
+        correct = sum((model(xb.to(device)).argmax(1)==yb.to(device)).sum().item()
+                      for xb, yb in val_loader)
+        acc = correct / len(val_set)
+        print(f'Epoch {epoch}: loss={total_loss/len(train_loader):.3f} val_acc={acc:.3f}')
+
+torch.save(model.state_dict(), 'ksl_model.pth')
+torch.save({'vocab': vocab, 'label_to_idx': label_to_idx}, 'ksl_vocab.pth')
+print('Model saved')
+
+8. Known Limitations and Open Research Questions
+This section documents the known limitations of the current training approach. These are real engineering and research problems that need creative solutions — they are not trivially fixable by running more training epochs or collecting more data.
+
+8.1 Temporal boundary problem
+KNOWN LIMITATION: The system currently uses a fixed 60-frame sliding window with no detection of when a sign starts or ends. In real continuous signing, signs blend into each other with transitional movements between them. The model has no way to identify where one sign ends and the next begins.
+RESEARCH QUESTION: How do we implement sign segmentation — detecting the boundary between signs — without adding a separate boundary annotation to every training sequence? Can an unsupervised method detect natural pause points in the skeleton movement velocity?
+
+8.2 Signer independence vs. signer-specific features
+KNOWN LIMITATION: The shoulder-width normalization makes sequences partially person-agnostic, but speed differences between signers are not normalized. A fast signer and a slow signer produce different temporal patterns for the same sign. The model may learn to recognize the specific signing speed of training signers rather than the sign itself.
+RESEARCH QUESTION: How should signing speed be normalized across signers? Should sequences be time-warped to a canonical speed before training, and if so, what is the reference speed? Does time-warp augmentation fully compensate for speed variation or does it introduce artifacts?
+
+8.3 Dictionary descriptions are static, signs are dynamic
+KNOWN LIMITATION: DeepSeek-VL2 reads static dictionary illustrations and generates text descriptions. But signs are inherently temporal — the movement path matters as much as the hand shape. A static image description misses the motion component entirely. The text auxiliary signal from Stream 2 may actually mislead the model by associating static poses with dynamic movement patterns.
+RESEARCH QUESTION: Is there a better source of motion descriptions for Khmer signs? Could we use the existing IDRI video dataset to generate motion descriptions using a video-language model instead of a static image model? What would the computational cost be?
+
+8.4 Left hand vs right hand dominance
+KNOWN LIMITATION: Khmer sign language, like all sign languages, has dominant and non-dominant hand conventions. The current pipeline treats both hands identically. For signs where only one hand is active, the idle hand produces noisy landmark data that may confuse the model.
+RESEARCH QUESTION: Should we add a hand activity detection step that masks out the non-dominant hand when it is not actively signing? How do we distinguish between an idle hand and a hand that is part of a two-handed sign?
+
+8.5 No continuous signing support
+KNOWN LIMITATION: The current model is an isolated sign recognizer — it classifies one sign at a time from a clean 60-frame window. Real Khmer sign language sentences require recognizing connected signs with co-articulation effects where adjacent signs influence each other's hand shape.
+RESEARCH QUESTION: What architecture changes are needed to extend from isolated sign recognition to continuous signing? Is a CTC (Connectionist Temporal Classification) loss function appropriate, or is attention-based sequence-to-sequence decoding better for Khmer sentence structure?
+
+9. GPU Options for Training
+
+10. Integration with Live System
+Once the model is trained and saved, integrate it into the live pipeline by adding inference to src/main_wsl.py. The inference runs alongside the normalization step — each processed frame is added to a rolling 60-frame buffer, and when the buffer is full the model outputs a prediction.
+
+# Add to main_wsl.py after normalization
+import torch
+from collections import deque
+
+model = SignTransformer(num_classes=len(vocab))
+model.load_state_dict(torch.load('ksl_model.pth'))
+model.eval()
+
+frame_buffer = deque(maxlen=60)
+
+# In the main processing loop:
+frame_vec = extract_frame_vector(processed_data)
+frame_buffer.append(frame_vec)
+
+if len(frame_buffer) == 60:
+    x = torch.FloatTensor(np.stack(frame_buffer)).unsqueeze(0)
+    with torch.no_grad():
+        pred = model(x).argmax(1).item()
+    predicted_sign = vocab[pred]
+    print(f'Predicted: {predicted_sign}')
+    # Send to Godot as text overlay
+
+NOTE: The 60-frame buffer gives you a 2-second prediction window at 30 FPS. This means there is always a 2-second delay between a sign being performed and it being recognized. Reducing the window to 30 frames halves the delay but reduces accuracy.
+
+--- TABLE 0 ---
+Target | Minimum | Ideal
+Signs in vocabulary | 30 signs | 100+ signs
+Signers per sign | 3 different people | 10+ different people
+Recordings per signer | 5 repetitions | 15 repetitions
+Total sequences | 450 minimum | 15,000+
+Lighting conditions | 1 environment | 3+ environments
+
+--- TABLE 1 ---
+Option | Cost | GPU | Best For
+Google Colab Free | Free | T4 (15GB) | Small datasets, quick experiments
+Google Colab Pro | $10/month | A100 (40GB) | Larger models, faster training
+Kaggle Notebooks | Free | P100/T4 | 30 hrs/week free, no credit card
+Vast.ai | ~$0.30/hr | RTX 3090/4090 | Longer training runs, flexible
+University AI Lab | Free (if approved) | Variable | Best option — get mentor approval
+
+================================================================================
+FILE: C:\Users\User\OneDrive\Attachments\Desktop\Weekly_Report_Updated.docx
+================================================================================
+Project title		: SignLink
+Project member	: Seng Piseth, Seng Menghong, Nom Sonita , Meong Chingsan
+                                      Kun Sovannreaj, Hang Ratvanarak, Mao Chhaiyanin, Chea Mengly
+Year			: 2
+Term			: 2
+Mentor name		: Dr. May Thu, Mr. Sok Chanchamnap
+
+
+
+
+
+--- TABLE 0 ---
+Internship Weekly Meeting | Internship Weekly Meeting | Internship Weekly Meeting
+ | Meeting date and time: 4/9/26 | Meeting location: CamTech University
+Attendees:  | Seng Piseth
+Seng Meng Hong  | Note Taker: Seng Piseth
+Absentees: |  First Time is forgiven, and all have to join meetings after this first one
+
+Nom Sonita 
+Meong Chingsan
+Kun Sovannreaj
+Hang Ratvanarak
+Mao Chhaiyanin
+Chea Mengly | 
+Discuss item: | 1. Bi-weekly Meeting Schedule with Dr. May
+The team will be meeting with Dr. May every 2 weeks. Each meeting will come with a reading or an objective that everyone must complete. Non-completion will be noted.
+
+2. New Member Presentation
+The 4 new members are required to do a presentation on the project for Dr. May within the next 3 weeks. Existing project documentation will be shared with them to help them understand the current system. Any questions can be directed to any existing team member.
+
+3. Project Direction - Research-Based Approach
+During the discussion with Dr. May, the team agreed to frame this as a research-based project similar to the research class format. The project requires a defined research question and a working system/prototype to support the research. The system also needs to be developed as a web application. System architecture improvements will also need to be addressed and presented.
+
+4. Year Plan - Sign Language to Speech
+The current term/year goal is to get the Sign Language to Text system fully working. In Year 3 and beyond, the plan is to extend this into a Sign Language to Speech system, which will require rebuilding certain components of the pipeline. | 
+To do: | Task: 
+New members: read through the shared project docs before the presentation in 3 weeks 
+ All members: define a research question for the project 
+Team: plan the web app architecture / start thinking about how to convert the current system into a web app 
+Team: improve and document the system architecture to present to Dr. May in the future
+Everyone: complete whatever reading or objective Dr. May assigns each bi-weekly meeting | Person- charge: 
+

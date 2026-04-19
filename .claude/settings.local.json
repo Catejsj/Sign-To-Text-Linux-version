@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import docx; print\\('ok'\\)\")",
+      "Bash(python -m pip install python-docx)",
+      "Bash(python _extract_docs.py)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(rm -v zlib.zip run_windows.bat check_dlls.py test_camera.py test_rtmpose.py test_godot_receiver.py test_simple_receiver.py)",
+      "Bash(rm -rfv zlib_extracted/)",
+      "Bash(mkdir -p docs data/sequences_v2 models/weights_v2)",
+      "Bash(mv -v ARCHITECTURE.md docs/ARCHITECTURE.md)",
+      "Bash(mv -v SETUP.md docs/SETUP_legacy.md)",
+      "Bash(touch data/sequences_v2/.gitkeep models/weights_v2/.gitkeep)",
+      "Bash(awk '{print $NF}')",
+      "Bash(grep -v \"^\\\\.$\\\\|^\\\\.\\\\.$\")"
+    ]
+  }
+}

@@ -188,11 +188,15 @@ python scripts/drive_sync.py doctor
 
 ---
 
-## Step 5 — Record your first real samples
+## Step 5 — Record your first real samples (single streaming session)
 
 We need enough samples to train. Minimum target: **10 signs × 3 signers × 3 takes = 90 samples**.
 You can start smaller (you alone, 10 signs × 3 takes = 30 samples) to sanity-check
 the pipeline, then expand once it works.
+
+The recorder is a *streaming session* — start it once, do every sign in one
+sitting, leave it running. Optionally have WSL + Godot running too so the
+mannequin mirrors you while you record.
 
 ### 5a. Pick your 10 signs
 
@@ -200,7 +204,21 @@ Write them down. Examples: `hello`, `thanks`, `yes`, `no`, `please`, `sorry`,
 `good`, `bad`, `family`, `name`. **Freeze this list** — adding signs later
 means retraining from scratch.
 
-### 5b. Activate the Windows venv
+### 5b. (Optional but fun) Start the live mannequin
+
+In two separate terminals before the recorder:
+
+```bash
+# Terminal 1 — WSL
+./start_wsl.sh
+
+# Open khmer-sign-mannequin2 in Godot 4.6, press F5
+```
+
+If you skip this, the recording still works — you just won't see the
+mannequin. Pass `--no-stream` to the recorder to silence the UDP send.
+
+### 5c. Activate the Windows venv
 
 ```bash
 source venv/Scripts/activate
@@ -209,25 +227,28 @@ python -c "import cv2, mediapipe, rtmlib; print('OK')"
 
 **Verify**: prints `OK`. If not, `pip install -r requirements.txt` first.
 
-### 5c. Record
+### 5d. Start the session
 
 ```bash
-python scripts/record_motion.py --label hello --signer piseth --count 3
+python scripts/record_session.py --signer <your-name>
 ```
 
-The script prints `[1/3] press ENTER to record 'hello' for 2.0s…`
-Stand 1.5–2 m from the camera, arms visible to the waist.
-Press ENTER → do the sign for 2 seconds → it saves, prompts for take 2, etc.
+A camera window opens. The terminal shows a blinking cursor (no prompt — type freely).
 
-Repeat for every sign in your list:
+**The loop, per take**:
+1. Type a label, e.g. `hello`, press **ENTER**.
+2. The camera overlay shows `GET READY: 1.5s`.
+3. The overlay turns red `REC 2.0s left` — perform the sign.
+4. The terminal prints `saved [1] hello: alex__real__clean__0000.npy + alex__real__noisy__0000.npy`.
+5. Press **ENTER** on an empty line to do another take of `hello`, or type a new label.
+6. Repeat for every sign × every take.
+7. When done: type `quit` + ENTER, **or** focus the camera window and press `q`.
 
-```bash
-python scripts/record_motion.py --label thanks --signer piseth --count 3
-python scripts/record_motion.py --label yes    --signer piseth --count 3
-# … and so on
-```
+Stand 1.5–2 m from the camera, arms visible to the waist. If a take captured
+fewer than 5 frames the recorder warns and discards it — fix lighting or
+hand positioning and redo it.
 
-### 5d. Verify
+### 5e. Verify
 
 ```bash
 ls data/sequences_v2/
@@ -235,8 +256,10 @@ ls data/sequences_v2/hello/
 ```
 
 **Verify**: `data/sequences_v2/` contains one folder per sign.
-Each folder has `.npy` + `.json` pairs named like
-`piseth__real__0000.npy` / `piseth__real__0000.json`.
+Each folder has **two files per take** named like:
+- `alex__real__clean__0000.npy` (shoulder-normalized — signer-invariant)
+- `alex__real__noisy__0000.npy` (raw [0,1] image space — preserves variation)
+plus matching `.json` metadata files.
 
 ---
 
@@ -329,7 +352,7 @@ ls models/weights_v2/
 | Colab says `ModuleNotFoundError: No module named 'src'` | You're not inside `khmer_sign_recognizer/`. Cell 2 ends with `%cd /content/Sign-to-Text/khmer_sign_recognizer`. Rerun it. |
 | Colab says `no samples found under data/sequences_v2` | Cell 4 didn't run, or your `push-data` didn't actually push. Rerun cell 4 and re-verify Drive. |
 | `val_acc` stuck near random (1/10 = 0.1) | You don't have enough data. Record more takes / more signers. |
-| `val_acc` very high but model fails on new signers | You trained on one signer. Add teammates as signers, then retrain with `held_out_signer="piseth"` to measure real generalization. |
+| `val_acc` very high but model fails on new signers | You trained on one signer. Add teammates as signers, then retrain with `held_out_signer="<one-of-the-signer-names>"` to measure real generalization. |
 
 ---
 

@@ -8,7 +8,7 @@ We keep two working tracks so nobody blocks anybody else:
 
 | Track           | Lives in                    | Owned by        |
 |-----------------|-----------------------------|-----------------|
-| **v2** (main)   | `src/v2/`, `notebooks/colab_train_v2.py` | Piseth + leads |
+| **v2** (main)   | `src/v2/`, `notebooks/colab_train_v2.py` | leads |
 | **legacy CNN**  | `src/model.py`, `src/normalizer.py`, `src/dataset.py`, `notebooks/train_ksl.py` | anyone who wants to keep iterating on the CNN |
 
 Both tracks share the `src/capture.py` pipeline and the Godot demo.
@@ -23,14 +23,25 @@ Never edit v2 files *and* legacy files in the same commit.
 
 ## v2 data contract
 
+Every recording produces **two files** — paired `clean` and `noisy` views
+of the same take, sharing a variant index:
+
 ```
 data/sequences_v2/
 └── <label>/
-    ├── <signer>__real__0000.npy           shape (60, 48, 3) float32
-    ├── <signer>__real__0000.json          SampleMeta
-    ├── <signer>__synthetic__0000.npy      shape (60, 48, 3) float32
-    └── <signer>__synthetic__0000.json     SampleMeta (signer_id="synthetic_<rigname>")
+    ├── <signer>__real__clean__0000.npy    shape (60, 48, 3) float32
+    ├── <signer>__real__clean__0000.json   SampleMeta
+    ├── <signer>__real__noisy__0000.npy    shape (60, 48, 3) float32
+    ├── <signer>__real__noisy__0000.json
+    ├── <signer>__synthetic__clean__0000.npy   (later, from Godot render)
+    └── <signer>__synthetic__clean__0000.json
 ```
+
+- `clean` = shoulder-anchored, scaled by shoulder width (signer-invariant)
+- `noisy` = raw [0,1] image-space coords (preserves position/scale variation)
+
+The training set treats them as independent samples → free 2× augmentation
+plus the model learns both distributions.
 
 Joint order (48 total): `L/R shoulder, L/R elbow, L/R wrist` then `left_hand[0..20]`, then `right_hand[0..20]`. Defined in `src/v2/schema.py`.
 
@@ -45,14 +56,15 @@ MyDrive/SignLink/
 └── logs/v2/                  (training history .json)
 ```
 
-## Piseth's workflow (leads)
+## Leads' workflow (Transformer track)
 
 ```powershell
 # one-time setup
 rclone config                              # add remote named "ksldrive"
 
-# daily cycle
-python scripts/record_motion.py --label hello --signer piseth --count 5
+# daily cycle (start the live mannequin first if you want it: ./start_wsl.sh + Godot F5)
+python scripts/record_session.py --signer <your-name>
+# inside the session: type label + ENTER per take, "quit" to end
 python scripts/drive_sync.py push-data     # upload new samples to Drive
 git add -A && git commit -m "…" && git push
 
@@ -110,7 +122,7 @@ Targets for proof-of-concept: **10 signs, ≥90% accuracy on a held-out signer**
 
 | I want to…                | Command                                              |
 |---------------------------|------------------------------------------------------|
-| record a real sign        | `python scripts/record_motion.py --label X --signer Y --count N` |
+| record real signs (session) | `python scripts/record_session.py --signer <name>` |
 | push data to Drive        | `python scripts/drive_sync.py push-data`             |
 | pull data from Drive      | `python scripts/drive_sync.py pull-data`             |
 | push trained weights      | `python scripts/drive_sync.py push-weights`          |

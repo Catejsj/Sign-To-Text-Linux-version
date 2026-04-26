@@ -15,7 +15,7 @@ Year-2 research project at CamTech University.
 
 ## Two tracks in one repo
 
-- **v2 (main)** — `src/v2/`, Transformer encoder on 48-joint skeleton sequences. Owned by Piseth + leads.
+- **v2 (main)** — `src/v2/`, Transformer encoder on 48-joint skeleton sequences. Owned by the leads.
 - **legacy CNN** — `src/model.py`, `src/dataset.py`, `notebooks/train_ksl.py`. Open for any teammate to iterate on.
 
 Both share the camera capture stack in [`src/capture.py`](src/capture.py) and the Godot mannequin at [`khmer-sign-mannequin2/`](khmer-sign-mannequin2/).
@@ -36,7 +36,7 @@ khmer_sign_recognizer/
 │   ├── model.py, dataset.py        legacy CNN track
 │   └── v2/                         new Transformer track
 ├── scripts/
-│   ├── record_motion.py            v2 recorder (writes SampleMeta)
+│   ├── record_session.py           v2 streaming recorder (paired clean+noisy)
 │   └── drive_sync.py               rclone wrapper
 ├── notebooks/
 │   ├── train_ksl.py                legacy CNN Colab script
@@ -60,7 +60,7 @@ start_windows.bat                            # Windows side
 # open khmer-sign-mannequin2/ in Godot and F5
 
 # v2 recording + training cycle
-python scripts/record_motion.py --label hello --signer piseth --count 5
+python scripts/record_session.py --signer <your-name>   # streaming session
 python scripts/drive_sync.py push-data
 # → open notebooks/colab_train_v2.py in Colab, run all cells
 python scripts/drive_sync.py pull-weights

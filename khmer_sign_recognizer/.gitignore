@@ -54,3 +54,22 @@ desktop.ini
 
 # ── rclone (should live in user profile, guard against accidents) ──
 rclone.conf
+
+# ── JSON metadata sidecar files (paired with .npy, synced via Drive) ──
+*.json
+!config/*.json
+!**/labels.json
+
+# ── Video/image captures ──
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.jpeg
+*.png
+!docs/**/*.png
+
+# ── pytest / coverage ──
+.pytest_cache/
+.coverage
+htmlcov/

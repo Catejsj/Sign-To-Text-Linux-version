@@ -1,132 +1,233 @@
-# SignLink workflow (v2)
+# SignLink — project overview
 
-This file is the team map. If you are new to the project, read this first.
+Year-2 research project at CamTech University.
 
-## Two tracks in one repo
 
-We keep two working tracks so nobody blocks anybody else:
+---
 
-| Track           | Lives in                    | Owned by        |
-|-----------------|-----------------------------|-----------------|
-| **v2** (main)   | `src/v2/`, `notebooks/colab_train_v2.py` | leads |
-| **legacy CNN**  | `src/model.py`, `src/normalizer.py`, `src/dataset.py`, `notebooks/train_ksl.py` | anyone who wants to keep iterating on the CNN |
+## What we are building
 
-Both tracks share the `src/capture.py` pipeline and the Godot demo.
-Never edit v2 files *and* legacy files in the same commit.
+A system that recognises isolated Khmer Sign Language (KSL) signs from a webcam
+and converts them to text in real time. The end product is a web app:
+camera on the left, predicted sign as text on the right.
 
-## Hard rules
+The research question:
 
-1. **Commit before you train.** Colab pulls from GitHub; anything uncommitted is invisible to it.
-2. **One data schema.** v2 samples are `(60, 48, 3)` float32 with a sibling `.json` describing signer and source. No exceptions.
-3. **Signer tag on every sample.** No "anonymous" samples — we can't measure signer-generalization without the tag.
-4. **Code lives in Git; data and weights live in Drive.** Never commit `.npy` or `.pt` files.
+> **Can a Transformer trained on skeleton sequences generalise to signers
+> it has never seen before — using a small set of real recordings
+> plus synthetic data generated from Godot?**
 
-## v2 data contract
+Target: **10 signs, ≥90% accuracy on a held-out signer**.
 
-Every recording produces **two files** — paired `clean` and `noisy` views
-of the same take, sharing a variant index:
+---
+
+## How the full system works
+
+```
+Webcam
+  │
+  ▼
+MediaPipe + RTMPose ──────────────────── 48 joints per frame (x, y, z)
+  │                                      6 body + 21 left hand + 21 right hand
+  ▼
+Normalize
+  ├── CLEAN  (shoulder-anchored, signer-invariant)
+  └── NOISY  (raw [0,1] image space, preserves signer variation)
+  │
+  ▼
+data/sequences_v2/<label>/
+  ├── signer__real__clean__0000.npy   shape (60, 48, 3)
+  └── signer__real__noisy__0000.npy   shape (60, 48, 3)
+  │
+  ▼
+Google Drive  ──▶  Colab training
+                    SignTransformer: 4 layers · 8 heads · d_model 256 · 2.16M params
+                    100 epochs · AdamW · CosineAnnealingLR
+  │
+  ▼
+ksl_transformer_latest.pt
+  │
+  ├──▶  Real-time inference  ──▶  predicted sign + confidence score
+  │
+  └──▶  FastAPI backend  ──▶  WebSocket  ──▶  React frontend
+                                               webcam + predicted text + correction
+```
+
+---
+
+## Current state
+
+| Component | Status |
+|---|---|
+| Camera capture (MediaPipe + RTMPose) | ✅ working |
+| Session recorder (Windows) | ✅ working |
+| Clean / noisy normalization | ✅ working |
+| Drive sync (rclone) | ✅ lead machine only |
+| Colab training notebook | ✅ built, not yet run |
+| SignTransformer architecture | ✅ built, not yet trained |
+| Godot live mannequin | ⚠️ moves but mapping is wrong |
+| Real-time inference (v2) | ❌ not built |
+| Web app | ❌ not built |
+| Trained weights | ❌ no data collected yet |
+
+**The immediate blocker is data. Nothing trains until people record.**
+
+---
+
+## Data pipeline
+
+### Record on Windows
+```powershell
+cd "D:\Projects\Sign to Text\khmer_sign_recognizer"
+.\venv\Scripts\Activate.ps1
+python scripts\record_session.py --signer yourname --no-stream
+```
+
+Signs to record — do not change this list without team agreement:
+`hello` `thanks` `yes` `no` `please` `sorry` `good` `bad` `family` `name`
+
+Target: **10 signs × 3 takes minimum per person.**
+
+Session controls:
+```
+hello   [ENTER]  →  GET READY 1.5s  →  REC 2.0s  →  saved
+        [ENTER]  →  another take of the same sign
+thanks  [ENTER]  →  switch to a different sign
+quit    [ENTER]  →  end session
+```
+
+### Delete a bad take
+```powershell
+ls data\sequences_v2\hello                        # see what you have
+Remove-Item data\sequences_v2\hello\*__0001.*     # delete one specific take
+Remove-Item -Recurse data\sequences_v2\hello      # delete all takes of a sign
+Remove-Item -Recurse data\sequences_v2\*          # wipe everything
+```
+
+### Upload to Drive
+Open `SignLink/data/sequences_v2/` in your browser.
+Open `D:\Projects\Sign to Text\khmer_sign_recognizer\data\sequences_v2\` in File Explorer.
+For each sign folder — open or create the matching folder in Drive, drag all 4 files in.
+
+### Train on Colab
+Open the Colab link from the lead. Run cells 1–6 in order.
+Weights land in `SignLink/models/weights_v2/` automatically.
+
+---
+
+## Data contract
+
+Every recording produces two paired files per take:
 
 ```
 data/sequences_v2/
 └── <label>/
     ├── <signer>__real__clean__0000.npy    shape (60, 48, 3) float32
-    ├── <signer>__real__clean__0000.json   SampleMeta
+    ├── <signer>__real__clean__0000.json
     ├── <signer>__real__noisy__0000.npy    shape (60, 48, 3) float32
-    ├── <signer>__real__noisy__0000.json
-    ├── <signer>__synthetic__clean__0000.npy   (later, from Godot render)
-    └── <signer>__synthetic__clean__0000.json
+    └── <signer>__real__noisy__0000.json
 ```
 
-- `clean` = shoulder-anchored, scaled by shoulder width (signer-invariant)
-- `noisy` = raw [0,1] image-space coords (preserves position/scale variation)
+- `clean` = shoulder-anchored, scaled by shoulder width — signer-invariant
+- `noisy` = raw [0,1] image-space coords — preserves natural variation
 
-The training set treats them as independent samples → free 2× augmentation
-plus the model learns both distributions.
+Joint order (48 total): L/R shoulder, L/R elbow, L/R wrist → left hand 21 joints → right hand 21 joints.
 
-Joint order (48 total): `L/R shoulder, L/R elbow, L/R wrist` then `left_hand[0..20]`, then `right_hand[0..20]`. Defined in `src/v2/schema.py`.
+---
 
-## Drive layout
+## Hard rules
 
-One folder per artefact kind — nothing else in there:
+1. **Commit before you train.** Colab pulls from GitHub — uncommitted code is invisible.
+2. **Signer tag on every sample.** Use the same short lowercase tag every time you record.
+3. **Code in Git. Data and weights in Drive.** Never commit `.npy` or `.pt` files.
+4. **Do not add new signs without team agreement.** New sign = retrain from scratch.
+5. **Do not edit `src/v2/` without talking to the lead.**
+
+---
+
+## The 8 tasks
+
+Pick the one that interests you. Write a research report on your approach
+before you build anything.
+
+---
+
+### Task 1 — Data recording
+Record all 10 signs on your machine (3 takes minimum per sign) and upload
+to the shared Drive. Follow the data pipeline above.
+**This unblocks everything — training cannot start until at least 3 people have recorded.**
+
+---
+
+### Task 2 — Godot investigation
+The mannequin mirrors movement but bone mapping and coordinate transforms are wrong.
+Read `src/mapper.py` and `khmer-sign-mannequin2/`.
+Write a report answering one question: **is it fixable in reasonable time,
+or do we replace the Godot approach entirely?** Either answer is valid.
+
+---
+
+### Task 3 — Web app frontend
+React app with live webcam on the left, predicted sign text on the right.
+Shows confidence score. Has a correction button for wrong predictions.
+Connects to the backend via WebSocket.
+
+---
+
+### Task 4 — Web app backend
+FastAPI server that receives landmark data over WebSocket, runs it through
+the trained model, and returns the predicted sign with a confidence score.
+Expose a `/correct` endpoint so the frontend can flag wrong predictions.
+
+---
+
+### Task 5 — Real-time inference
+Script that reads live camera frames, buffers the last 60 frames,
+runs the v2 Transformer, and overlays the predicted sign and confidence
+on the camera window. Built on top of `src/capture.py`.
+Becomes the core of Task 4.
+*Needs trained weights first.*
+
+---
+
+### Task 6 — KSL sign validation
+Find authoritative sources for the 10 signs — Khmer deaf associations,
+professor references, KSL dictionaries or videos.
+Are these the correct standardized signs? Are there regional variations?
+Produce a reference sheet with photos or video links that every signer
+uses before recording. **Wrong signs recorded = wrong model.**
+
+---
+
+### Task 7 — Sign-to-text output design
+After the model predicts a sign, what happens?
+Text on screen? Multiple signs building into a sentence? Khmer TTS?
+Research what sign-to-text UX looks like for deaf users, what similar apps
+do, and write a design proposal that the web app team implements.
+
+---
+
+### Task 8 — Prediction confidence + correction loop
+How do we handle uncertain predictions?
+What threshold before we show a label?
+What does the user see when confidence is low?
+Can a user correction feed back into retraining?
+Write a proposal covering the full correction loop.
+*Needs trained weights first.*
+
+---
+
+## Dependency map
 
 ```
-MyDrive/SignLink/
-├── data/sequences_v2/        (mirrors local data/sequences_v2/)
-├── models/weights_v2/        (trained weights land here)
-└── logs/v2/                  (training history .json)
+Task 6 (KSL vocab)   ──▶  Task 1 (record)  ──▶  training  ──▶  Task 5 (inference)
+                                                           └──▶  Task 8 (confidence)
+
+Task 7 (output design)  ──▶  Task 3 (frontend)
+                         └──▶  Task 4 (backend)  ◀──  Task 5 (inference)
+
+Task 2 (Godot)  ──  independent
 ```
 
-## Leads' workflow (Transformer track)
-
-```powershell
-# one-time setup
-rclone config                              # add remote named "ksldrive"
-
-# daily cycle (start the live mannequin first if you want it: ./start_wsl.sh + Godot F5)
-python scripts/record_session.py --signer <your-name>
-# inside the session: type label + ENTER per take, "quit" to end
-python scripts/drive_sync.py push-data     # upload new samples to Drive
-git add -A && git commit -m "…" && git push
-
-# Colab — open notebooks/colab_train_v2.py in Colab, run all cells
-# (it clones, pulls data, trains, pushes weights back)
-
-python scripts/drive_sync.py pull-weights  # grab latest weights locally
-python inference.py                        # (legacy) sanity-check predictions
-```
-
-## Teammate workflow (CNN track)
-
-```powershell
-git pull                                   # get latest shared data format, if any
-# edit src/model.py / src/dataset.py / notebooks/train_ksl.py freely
-python notebooks/train_ksl.py              # local training
-# or upload to Colab as-is
-git add src/model.py notebooks/train_ksl.py && git commit -m "cnn: …" && git push
-```
-
-**Do not** edit `src/v2/*`. If you want a feature in v2, open an issue or a PR.
-
-## Colab bootstrap (2 commands)
-
-In a new Colab notebook:
-
-```python
-from google.colab import drive; drive.mount('/content/drive')
-
-!git clone https://github.com/Catejsj/Sign-to-Text.git /content/Sign-to-Text \
-  || (cd /content/Sign-to-Text && git fetch && git reset --hard origin/main)
-```
-
-Then follow the cells in `notebooks/colab_train_v2.py`.
-
-## Synthetic data (Pipeline C — Godot headless)
-
-Not yet implemented. Target: given one real motion clip per sign, render ~50 variants from Godot with randomized camera angle, lighting, background, and mannequin skin, run MediaPipe on the renders, and save as `synthetic__NNNN.npy`.
-
-See `docs/synthesis.md` (TODO) for the plan.
-
-## Web app (FastAPI + React)
-
-Not yet implemented. Target: single-page app that captures webcam, runs MediaPipe in-browser, sends keypoints over WebSocket, server returns the predicted sign.
-
-See `docs/webapp.md` (TODO) for the plan.
-
-## Research question (working)
-
-> *Can synthetic skeleton-only data, domain-randomized from one-shot per-sign recordings, close the gap to real multi-signer data for isolated Khmer Sign Language recognition?*
-
-Targets for proof-of-concept: **10 signs, ≥90% accuracy on a held-out signer**, using ≤2 real signers + Godot-synthetic augmentation.
-
-## Commands cheat sheet
-
-| I want to…                | Command                                              |
-|---------------------------|------------------------------------------------------|
-| record real signs (session) | `python scripts/record_session.py --signer <name>` |
-| push data to Drive        | `python scripts/drive_sync.py push-data`             |
-| pull data from Drive      | `python scripts/drive_sync.py pull-data`             |
-| push trained weights      | `python scripts/drive_sync.py push-weights`          |
-| pull trained weights      | `python scripts/drive_sync.py pull-weights`          |
-| check Drive connection    | `python scripts/drive_sync.py doctor`                |
-| train locally (GPU)       | `python notebooks/colab_train_v2.py`                 |
-| train on Colab            | open `notebooks/colab_train_v2.py` in Colab          |
+Tasks that can start immediately: **1, 2, 3, 4, 6, 7**
+Tasks that need training first: **5, 8**

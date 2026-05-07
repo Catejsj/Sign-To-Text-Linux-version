@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SignLink — VRM Mannequin</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0d1117; color: #ddd;
+    font-family: system-ui, sans-serif; overflow: hidden;
+  }
+  #scene { position: absolute; inset: 0; }
+  #cam   {
+    position: absolute; top: 16px; right: 16px;
+    width: 240px; height: 180px; object-fit: cover;
+    border: 2px solid #444; border-radius: 8px;
+    transform: scaleX(-1);  /* mirror so it feels natural */
+  }
+  #status {
+    position: absolute; top: 16px; left: 16px;
+    background: rgba(0,0,0,.55); padding: 10px 14px;
+    border-radius: 6px; font-size: 13px; max-width: 360px;
+  }
+  .err { color: #ff8888; }
+  .ok  { color: #88ff88; }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<video id="cam" autoplay muted playsinline></video>
+<div id="status">starting...</div>
+
+<!-- Module map for clean imports -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@2.1.1/lib/three-vrm.module.min.js",
+    "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+  }
+}
+</script>
+
+<!-- Kalidokit is UMD only, load as a classic script -->
+<script src="https://cdn.jsdelivr.net/npm/kalidokit@1.1.5/dist/kalidokit.umd.js" crossorigin="anonymous"></script>
+
+<script type="module">
+import * as THREE                from 'three';
+import { GLTFLoader }            from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls }         from 'three/addons/controls/OrbitControls.js';
+import { VRM, VRMLoaderPlugin,
+         VRMUtils }              from '@pixiv/three-vrm';
+import { HandLandmarker,
+         PoseLandmarker,
+         FilesetResolver }       from '@mediapipe/tasks-vision';
+
+const STATUS = document.getElementById('status');
+const setStatus  = (msg, cls='') => { STATUS.innerHTML = `<span class="${cls}">${msg}</span>`; };
+
+const VRM_URL = 'avatar.vrm';   // put any VRM file with this name next to index.html
+const MIRROR  = true;
+
+// If a Python WebSocket landmarks server is running, prefer it over
+// in-browser MediaPipe. Disabled by default because on machines without
+// a CUDA GPU, Python MediaPipe is slower than browser MediaPipe.
+// Set to a URL like 'ws://127.0.0.1:8765' to enable.
+const WS_URL  = null;
+
+// ─── three.js scene ────────────────────────────────────────────────
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+
+const camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 50);
+// Pulled back further so the full body is visible when the avatar loads
+camera.position.set(0, 1.3, 3.5);
+camera.lookAt(0, 1.0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.getElementById('scene').appendChild(renderer.domElement);
+
+// Orbit controls: drag to rotate, scroll to zoom, shift-drag to pan
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.0, 0);
+controls.minDistance = 0.5;
+controls.maxDistance = 10;
+controls.enablePan   = true;
+controls.update();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x222244, 0.9));
+const dl = new THREE.DirectionalLight(0xffffff, 0.6);
+dl.position.set(1, 2, 1);
+scene.add(dl);
+
+// floor grid for reference
+const grid = new THREE.GridHelper(4, 8, 0x444444, 0x333333);
+scene.add(grid);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── load VRM avatar ───────────────────────────────────────────────
+let currentVrm = null;
+
+const loader = new GLTFLoader();
+loader.register((parser) => new VRMLoaderPlugin(parser));
+
+setStatus(`loading ${VRM_URL}...`);
+loader.load(
+  VRM_URL,
+  (gltf) => {
+    const vrm = gltf.userData.vrm;
+    VRMUtils.removeUnnecessaryVertices(gltf.scene);
+    VRMUtils.removeUnnecessaryJoints(gltf.scene);
+    if (MIRROR) vrm.scene.rotation.y = Math.PI;
+    scene.add(vrm.scene);
+    currentVrm = vrm;
+
+    // Diagnostic: log which bones this avatar actually has so we can
+    // tell whether stiff fingers are the avatar's fault or our code's.
+    const checkBones = [
+      'leftHand','leftThumbProximal','leftThumbIntermediate','leftThumbDistal',
+      'leftIndexProximal','leftIndexIntermediate','leftIndexDistal',
+      'leftMiddleProximal','leftMiddleIntermediate','leftMiddleDistal',
+      'leftRingProximal','leftRingIntermediate','leftRingDistal',
+      'leftLittleProximal','leftLittleIntermediate','leftLittleDistal',
+      'rightHand','rightThumbProximal','rightIndexProximal',
+      'rightMiddleProximal','rightRingProximal','rightLittleProximal',
+    ];
+    const missing = checkBones.filter(
+      (n) => !vrm.humanoid.getNormalizedBoneNode(n)
+    );
+    console.log(
+      `[avatar] ${checkBones.length - missing.length} of ${checkBones.length} ` +
+      `tracked bones present on this VRM`
+    );
+    if (missing.length > 0) {
+      console.warn('[avatar] missing bones (avatar can\'t show these):', missing);
+    } else {
+      console.log('[avatar] full finger rig — fingers should track well');
+    }
+
+    setStatus('VRM loaded — looking for Python landmarks server...', 'ok');
+    // Try Python WebSocket first; if it doesn't connect within ~2s,
+    // fall back to in-browser MediaPipe.
+    if (WS_URL) {
+      tryWebSocket();
+    } else {
+      startWebcam();
+    }
+  },
+  undefined,
+  (err) => {
+    console.error(err);
+    setStatus(
+      `failed to load <code>${VRM_URL}</code>.<br>` +
+      `Download a free VRM avatar from <a href="https://hub.vroid.com/" target="_blank" style="color:#8af">VRoid Hub</a>, ` +
+      `save it next to index.html as <b>avatar.vrm</b>, then refresh.`,
+      'err'
+    );
+  }
+);
+
+// ─── try Python WebSocket landmarks first ─────────────────────────
+let ws = null;
+let usingWS = false;
+
+function tryWebSocket() {
+  setStatus('connecting to ' + WS_URL + ' ...');
+  let connectedInTime = false;
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    connectedInTime = true;
+    usingWS = true;
+    setStatus('connected to Python (GPU MediaPipe)', 'ok');
+    // hide the camera preview — Python owns the camera now
+    videoEl.style.display = 'none';
+  };
+  ws.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      onResults(data);
+    } catch (e) {
+      console.error('bad WS payload', e);
+    }
+  };
+  ws.onclose = () => {
+    if (usingWS) {
+      usingWS = false;
+      setStatus('Python server disconnected — falling back to browser MediaPipe', 'err');
+      videoEl.style.display = 'block';
+      startWebcam();
+    }
+  };
+  ws.onerror = () => { /* handled by onclose / timeout */ };
+
+  // If Python isn't up within 2s, fall back to browser MediaPipe
+  setTimeout(() => {
+    if (!connectedInTime) {
+      try { ws.close(); } catch {}
+      setStatus('no Python server — using browser MediaPipe instead');
+      startWebcam();
+    }
+  }, 2000);
+}
+
+// ─── webcam + MediaPipe Tasks API (browser fallback) ──────────────
+const videoEl = document.getElementById('cam');
+
+async function startWebcam() {
+  setStatus('loading MediaPipe Tasks (first run downloads ~20 MB)...');
+
+  let vision, poseLandmarker, handLandmarker;
+  try {
+    vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
+    poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+    });
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numHands: 2,
+    });
+  } catch (e) {
+    console.error(e);
+    setStatus('MediaPipe Tasks init failed: ' + e.message, 'err');
+    return;
+  }
+
+  // Open the camera and pipe frames into the video element
+  setStatus('opening webcam...');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      // Higher resolution gives MediaPipe more room to find joints when
+      // you're not perfectly centered. 1280x720 is a good middle ground.
+      video: { width: 1280, height: 720, facingMode: 'user' },
+      audio: false,
+    });
+  } catch (e) {
+    setStatus('camera permission denied: ' + e.message, 'err');
+    return;
+  }
+  videoEl.srcObject = stream;
+  await new Promise((r) => (videoEl.onloadedmetadata = r));
+  await videoEl.play();
+
+  setStatus('mannequin running (tasks API)', 'ok');
+
+  // Frame loop. We pull from the live <video> element on every animation
+  // frame and call detectForVideo with a monotonic timestamp.
+  let lastSeenTime = -1;
+  function processFrame() {
+    if (videoEl.readyState >= 2 && videoEl.currentTime !== lastSeenTime) {
+      lastSeenTime = videoEl.currentTime;
+      const ts = performance.now();
+
+      const poseRes = poseLandmarker.detectForVideo(videoEl, ts);
+      const handRes = handLandmarker.detectForVideo(videoEl, ts);
+
+      // Repackage into the shape the existing onResults() expects
+      // (matches the old Holistic API).
+      const merged = {
+        poseLandmarks:      poseRes.landmarks      ?.[0] ?? null,
+        poseWorldLandmarks: poseRes.worldLandmarks ?.[0] ?? null,
+        leftHandLandmarks:  null,
+        rightHandLandmarks: null,
+        faceLandmarks:      null,
+      };
+
+      if (handRes.landmarks && handRes.handedness) {
+        for (let i = 0; i < handRes.landmarks.length; i++) {
+          const label = handRes.handedness[i]?.[0]?.categoryName;
+          if (label === 'Left')       merged.leftHandLandmarks  = handRes.landmarks[i];
+          else if (label === 'Right') merged.rightHandLandmarks = handRes.landmarks[i];
+        }
+      }
+
+      onResults(merged);
+    }
+    requestAnimationFrame(processFrame);
+  }
+  processFrame();
+}
+
+// ─── apply MediaPipe results to VRM via Kalidokit ──────────────────
+let frameCount = 0;
+let lastFpsT   = performance.now();
+let poseCount  = 0;
+let handCount  = 0;
+function onResults(results) {
+  frameCount++;
+  if (results.poseWorldLandmarks) poseCount++;
+  if (results.leftHandLandmarks || results.rightHandLandmarks) handCount++;
+
+  // Live FPS / detection counter every 1s, in the status box
+  const now = performance.now();
+  if (now - lastFpsT > 1000) {
+    setStatus(
+      `running · ${frameCount} fps · pose ${poseCount}/s · hands ${handCount}/s`,
+      'ok'
+    );
+    frameCount = 0;
+    poseCount  = 0;
+    handCount  = 0;
+    lastFpsT   = now;
+  }
+
+  if (!currentVrm) return;
+  const vrm = currentVrm;
+
+  const facelm  = results.faceLandmarks;
+  // Try the proper API name first, fall back to older minified names
+  const pose3d  = results.poseWorldLandmarks || results.ea || results.za;
+  const pose2d  = results.poseLandmarks;
+  const lhandlm = results.leftHandLandmarks;
+  const rhandlm = results.rightHandLandmarks;
+
+  // Pose
+  if (pose3d && pose2d) {
+    const rig = Kalidokit.Pose.solve(pose3d, pose2d, { runtime: 'mediapipe', video: videoEl });
+    if (rig) {
+      // Visibility/presence per landmark — skip rigging body parts that
+      // MediaPipe can't see, otherwise we get wild twisting from garbage
+      // interpolated joint positions.
+      const VIS_THRESHOLD = 0.5;
+      const v = (idx) => {
+        const lm = pose2d[idx];
+        if (!lm) return 0;
+        // Tasks API: visibility (occlusion). Old API uses same field name.
+        return Math.min(lm.visibility ?? 1, lm.presence ?? 1);
+      };
+      // Pose landmark indices: 11 LShoulder · 12 RShoulder · 13 LElbow ·
+      //                        14 RElbow · 15 LWrist · 16 RWrist ·
+      //                        23 LHip · 24 RHip · 25 LKnee · 26 RKnee
+      const lArmOk = v(11) > VIS_THRESHOLD && v(13) > VIS_THRESHOLD && v(15) > VIS_THRESHOLD;
+      const rArmOk = v(12) > VIS_THRESHOLD && v(14) > VIS_THRESHOLD && v(16) > VIS_THRESHOLD;
+      const lLegOk = v(23) > VIS_THRESHOLD && v(25) > VIS_THRESHOLD;
+      const rLegOk = v(24) > VIS_THRESHOLD && v(26) > VIS_THRESHOLD;
+      const torsoOk = v(11) > VIS_THRESHOLD && v(12) > VIS_THRESHOLD;
+
+      if (torsoOk) {
+        // Hip rotation disabled — Kalidokit flips it 180° at ambiguous poses
+        // and there's no reliable way to lock it down. Avatar stays facing
+        // the camera, only its position follows you.
+        // rigBone(vrm, 'hips',     rig.Hips.rotation, 0.7);
+        rigPosition(vrm, 'hips', rig.Hips.position, 1.0);
+        rigBone(vrm, 'chest',    rig.Spine,         0.25);
+        rigBone(vrm, 'spine',    rig.Spine,         0.45);
+      }
+      if (lArmOk) {
+        rigBone(vrm, 'leftUpperArm', rig.LeftUpperArm, 1.0);
+        rigBone(vrm, 'leftLowerArm', rig.LeftLowerArm, 1.0);
+      }
+      if (rArmOk) {
+        rigBone(vrm, 'rightUpperArm', rig.RightUpperArm, 1.0);
+        rigBone(vrm, 'rightLowerArm', rig.RightLowerArm, 1.0);
+      }
+      if (lLegOk) {
+        rigBone(vrm, 'leftUpperLeg', rig.LeftUpperLeg, 1.0);
+        rigBone(vrm, 'leftLowerLeg', rig.LeftLowerLeg, 1.0);
+      }
+      if (rLegOk) {
+        rigBone(vrm, 'rightUpperLeg', rig.RightUpperLeg, 1.0);
+        rigBone(vrm, 'rightLowerLeg', rig.RightLowerLeg, 1.0);
+      }
+    }
+  }
+
+  // Hands — use the snappier finger smoothing for the wrist + fingers
+  if (lhandlm) {
+    const lh = Kalidokit.Hand.solve(lhandlm, 'Left');
+    if (lh) {
+      rigBone(vrm, 'leftHand', lh.LeftWrist, 1.0, SMOOTH_FINGERS);
+      applyFingers(vrm, 'left',  lh);
+    }
+  }
+  if (rhandlm) {
+    const rh = Kalidokit.Hand.solve(rhandlm, 'Right');
+    if (rh) {
+      rigBone(vrm, 'rightHand', rh.RightWrist, 1.0, SMOOTH_FINGERS);
+      applyFingers(vrm, 'right', rh);
+    }
+  }
+
+  // Face (eyes + mouth)
+  if (facelm) {
+    const face = Kalidokit.Face.solve(facelm, { runtime: 'mediapipe', video: videoEl });
+    if (face) {
+      rigBone(vrm, 'neck', face.head, 0.7);
+      // simple mouth open via expression manager
+      const exp = vrm.expressionManager;
+      if (exp) exp.setValue('aa', face.mouth?.shape?.A ?? 0);
+    }
+  }
+
+  vrm.update(1 / 60);
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Smoothing factors. Lower = smoother but laggier. Higher = snappier
+// but jittery. Fingers need to be snappier because they move fast.
+const SMOOTH_BODY    = 0.30;
+const SMOOTH_FINGERS = 0.55;
+
+function rigBone(vrm, name, target, strength = 1.0, smooth = SMOOTH_BODY) {
+  if (!target) return;
+  const node = vrm.humanoid.getNormalizedBoneNode(name);
+  if (!node) return;
+  node.rotation.x = lerp(node.rotation.x, (target.x ?? 0) * strength, smooth);
+  node.rotation.y = lerp(node.rotation.y, (target.y ?? 0) * strength, smooth);
+  node.rotation.z = lerp(node.rotation.z, (target.z ?? 0) * strength, smooth);
+}
+
+function rigPosition(vrm, name, pos, strength = 1.0) {
+  const node = vrm.humanoid.getNormalizedBoneNode(name);
+  if (!node || !pos) return;
+  node.position.x = lerp(node.position.x, (pos.x ?? 0) * strength, 0.4);
+  node.position.y = lerp(node.position.y, (pos.y ?? 0) * strength, 0.4);
+  node.position.z = lerp(node.position.z, (pos.z ?? 0) * strength, 0.4);
+}
+
+function applyFingers(vrm, side, rig) {
+  const fingers = ['Thumb', 'Index', 'Middle', 'Ring', 'Little'];
+  const segs    = ['Proximal', 'Intermediate', 'Distal'];
+  const sideCap = side === 'left' ? 'Left' : 'Right';
+  for (const f of fingers) {
+    for (const s of segs) {
+      const boneName = `${side}${f}${s}`;
+      const rigKey   = `${sideCap}${f}${s === 'Proximal' ? '' : (s === 'Intermediate' ? 'Intermediate' : 'Distal')}`;
+      // Kalidokit naming: LeftRingProximal, LeftRingIntermediate, LeftRingDistal etc
+      const target = rig[`${sideCap}${f}${s}`] || rig[rigKey];
+      if (target) rigBone(vrm, boneName, target, 1.0, SMOOTH_FINGERS);
+    }
+  }
+}
+
+// ─── render loop ───────────────────────────────────────────────────
+function tick() {
+  requestAnimationFrame(tick);
+  controls.update();
+  if (currentVrm) currentVrm.update(1 / 60);
+  renderer.render(scene, camera);
+}
+tick();
+</script>
+</body>
+</html>

@@ -61,7 +61,8 @@ Drive layout expected:
 #     batch_size=32,
 #     epochs=100,
 #     lr=1e-3,
-#     held_out_signer=None,  # e.g. "menghong" for leave-one-out
+#     held_out_signer=None,    # e.g. "Menghong" for leave-one-signer-out
+#     model_type="tcn",        # "tcn" (default, recommended) or "transformer"
 # )
 # result = train(cfg)
 # print("best val acc:", result["best_val_acc"])

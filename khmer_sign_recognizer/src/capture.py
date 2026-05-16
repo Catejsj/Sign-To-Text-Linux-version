@@ -311,22 +311,53 @@ class LandmarkCapture:
             left_is_fallback  = False
             right_is_fallback = False
 
-            # Fallback to standalone hands if holistic missed either
+            # Fallback to standalone hands if holistic missed either.
+            #
+            # We do NOT trust MediaPipe's Left/Right handedness label here
+            # — it flips on fast or rotated hands, which caused a dropped
+            # hand to get filled with the OTHER hand's data (the "down
+            # hand mirrors the up hand" bug). Holistic's own L/R split is
+            # body-aware and reliable, so we keep whatever Holistic found
+            # and fill only the EMPTY slot, by spatial elimination: a
+            # fallback hand fills it only if it is clearly a different
+            # hand (far enough from the one Holistic already located).
             if not left_lm or not right_lm:
                 hands_results = self.hands.process(rgb)
-                if hands_results.multi_hand_landmarks and \
-                   hands_results.multi_handedness:
-                    for hand_landmarks, handedness in zip(
-                        hands_results.multi_hand_landmarks,
-                        hands_results.multi_handedness
-                    ):
-                        label = handedness.classification[0].label
+                cands = []
+                if hands_results.multi_hand_landmarks:
+                    handed = hands_results.multi_handedness or []
+                    for i, hl in enumerate(hands_results.multi_hand_landmarks):
+                        label = (handed[i].classification[0].label
+                                 if i < len(handed) else None)
+                        cands.append((hl, hl.landmark[0], label))
+
+                # min separation (normalized) before a fallback hand is
+                # accepted as a genuinely different hand — guards against
+                # a duplicate detection of the SAME hand.
+                MIN_SEP2 = 0.10 ** 2
+
+                def _d2(w, ref):
+                    return (w.x - ref.x) ** 2 + (w.y - ref.y) ** 2
+
+                if left_lm and not right_lm and cands:
+                    ref = left_lm.landmark[0]
+                    far = max(cands, key=lambda c: _d2(c[1], ref))
+                    if _d2(far[1], ref) > MIN_SEP2:
+                        right_lm = far[0]
+                        right_is_fallback = True
+                elif right_lm and not left_lm and cands:
+                    ref = right_lm.landmark[0]
+                    far = max(cands, key=lambda c: _d2(c[1], ref))
+                    if _d2(far[1], ref) > MIN_SEP2:
+                        left_lm = far[0]
+                        left_is_fallback = True
+                elif not left_lm and not right_lm and cands:
+                    # Holistic found nothing — last resort, use the label.
+                    for hl, _wrist, label in cands:
                         if label == 'Left' and not left_lm:
-                            left_lm = hand_landmarks
-                            left_is_fallback = True
+                            left_lm, left_is_fallback = hl, True
                         elif label == 'Right' and not right_lm:
-                            right_lm = hand_landmarks
-                            right_is_fallback = True
+                            right_lm, right_is_fallback = hl, True
 
             # Draw on BLACK canvas (not on camera frame)
             canvas = np.zeros_like(frame)

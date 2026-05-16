@@ -15,7 +15,8 @@ from .dataset import (
     SignDataset, discover_samples, build_label_index,
     split_random, split_leave_one_signer_out, source_stats,
 )
-from .model_transformer import SignTransformer, num_params
+from .model_transformer import SignTransformer
+from .model_tcn import SignTCN, num_params
 
 
 @dataclass
@@ -32,6 +33,7 @@ class TrainConfig:
     device: str = "cuda"
     held_out_signer: str | None = None   # enables leave-one-signer-out if set
     flip_labels: list[str] | None = None
+    model_type: str = "tcn"              # "tcn" (recommended) or "transformer"
 
 
 def _eval(model, loader, device) -> tuple[float, float]:
@@ -82,8 +84,14 @@ def train(cfg: TrainConfig) -> dict:
                             shuffle=False, num_workers=0)
 
     device = cfg.device if torch.cuda.is_available() or cfg.device == "cpu" else "cpu"
-    model = SignTransformer(num_classes=len(label_to_idx)).to(device)
-    print(f"model params: {num_params(model):,}")
+    if cfg.model_type == "tcn":
+        model = SignTCN(num_classes=len(label_to_idx)).to(device)
+    elif cfg.model_type == "transformer":
+        model = SignTransformer(num_classes=len(label_to_idx)).to(device)
+    else:
+        raise ValueError(f"unknown model_type: {cfg.model_type!r} "
+                         "(expected 'tcn' or 'transformer')")
+    print(f"model: {cfg.model_type}  params: {num_params(model):,}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr,
                             weight_decay=cfg.weight_decay)

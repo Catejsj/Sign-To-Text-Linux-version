@@ -37,7 +37,6 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from src.capture import LandmarkCapture            # noqa: E402
-from src.send_to_wsl import WSLBridge              # noqa: E402
 from src.utils import load_config, setup_logging   # noqa: E402
 from src.v2.normalize import (                     # noqa: E402
     frame_from_landmarks, clean_clip_from_frames, noisy_clip_from_frames,
@@ -82,7 +81,7 @@ def main() -> None:
     ap.add_argument("--duration", type=float, default=DEFAULT_RECORD_S,
                     help="Seconds per take (default 2.0)")
     ap.add_argument("--no-stream", action="store_true",
-                    help="Skip sending to WSL (no live mannequin)")
+                    help="(legacy no-op, kept so existing commands don't error)")
     ap.add_argument("--config", default=str(ROOT / "config" / "settings.json"))
     args = ap.parse_args()
 
@@ -99,7 +98,6 @@ def main() -> None:
     print("Type 'quit' or press 'q' in the camera window to end.\n")
 
     capture = LandmarkCapture(cfg)
-    bridge = None if args.no_stream else WSLBridge(cfg)
 
     if not capture.start():
         print("ERROR: camera failed to start", file=sys.stderr)
@@ -125,8 +123,6 @@ def main() -> None:
             if not ret or frame is None:
                 continue
             landmarks = capture.process_landmarks(frame)
-            if landmarks and bridge is not None:
-                bridge.send(landmarks)
 
             now = time.time()
 
@@ -207,8 +203,6 @@ def main() -> None:
 
     finally:
         capture.stop()
-        if bridge is not None:
-            bridge.close()
         cv2.destroyAllWindows()
         print(f"\nsession ended. {take_count} takes saved under {root}.")
 

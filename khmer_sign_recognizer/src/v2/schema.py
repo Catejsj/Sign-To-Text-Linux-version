@@ -27,8 +27,18 @@ RIGHT_HAND = slice(27, 48)
 
 
 class Source(str, Enum):
+    """Where a sample's landmarks came from.
+
+    REAL       — MediaPipe + RTMPose on a webcam frame of an actual signer.
+    SYNTHETIC  — generated from a 3D animation rig (no live input).
+    MANNEQUIN  — MediaPipe re-detection of the rendered VRM avatar that was
+                 itself driven by a real webcam in the same session. Paired
+                 with a REAL take from the same recording window for the
+                 ablation experiment (real-only vs. real+mannequin).
+    """
     REAL = "real"
     SYNTHETIC = "synthetic"
+    MANNEQUIN = "mannequin"
 
 
 class View(str, Enum):

@@ -96,11 +96,13 @@ class SignDataset(Dataset):
 
 
 def source_stats(samples: list[tuple[Path, SampleMeta]]) -> dict:
-    by_source = {"real": 0, "synthetic": 0}
+    # Dynamic dict so new Source values (e.g. MANNEQUIN) get counted
+    # without having to edit this function each time.
+    by_source: dict[str, int] = {}
     by_signer: dict[str, int] = {}
     by_label: dict[str, int] = {}
     for _, m in samples:
-        by_source[m.source.value] += 1
+        by_source[m.source.value] = by_source.get(m.source.value, 0) + 1
         by_signer[m.signer_id] = by_signer.get(m.signer_id, 0) + 1
         by_label[m.label] = by_label.get(m.label, 0) + 1
     return {"total": len(samples), "by_source": by_source,

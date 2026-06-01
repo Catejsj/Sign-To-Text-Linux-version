@@ -59,6 +59,7 @@ class SampleMeta:
     label: str
     signer_id: str
     source: Source
+    language: str = "khmer"      # ASCII language code: khmer, english, asl, ...
     view: View = View.CLEAN
     fps: int = 30
     variant: int = 0
@@ -68,28 +69,32 @@ class SampleMeta:
         d = asdict(self)
         d["source"] = self.source.value
         d["view"] = self.view.value
-        return json.dumps(d, indent=2)
+        return json.dumps(d, indent=2, ensure_ascii=False)
 
     @classmethod
     def from_json(cls, text: str) -> "SampleMeta":
         d = json.loads(text)
         d["source"] = Source(d["source"])
         d["view"] = View(d.get("view", "clean"))
+        d.setdefault("language", "khmer")    # back-compat: pre-language data
         return cls(**d)
 
 
 def sample_paths(root: Path, label: str, signer_id: str, source: Source,
-                 view: View, variant: int) -> tuple[Path, Path]:
+                 view: View, variant: int,
+                 language: str = "khmer") -> tuple[Path, Path]:
     stem = f"{signer_id}__{source.value}__{view.value}__{variant:04d}"
-    folder = root / label
+    folder = root / language / label
     folder.mkdir(parents=True, exist_ok=True)
     return folder / f"{stem}.npy", folder / f"{stem}.json"
 
 
 def next_variant(root: Path, label: str, signer_id: str,
-                 source: Source, view: View) -> int:
-    """Find the next free variant index for (label, signer, source, view)."""
-    folder = root / label
+                 source: Source, view: View,
+                 language: str = "khmer") -> int:
+    """Find the next free variant index for (label, signer, source, view)
+    within a language folder."""
+    folder = root / language / label
     if not folder.exists():
         return 0
     pattern = f"{signer_id}__{source.value}__{view.value}__*.npy"
@@ -111,27 +116,30 @@ def save_sample(root: Path, clip: np.ndarray, meta: SampleMeta,
     if variant is not None:
         meta.variant = variant
     npy_path, json_path = sample_paths(
-        root, meta.label, meta.signer_id, meta.source, meta.view, meta.variant
+        root, meta.label, meta.signer_id, meta.source, meta.view, meta.variant,
+        language=meta.language,
     )
     np.save(npy_path, clip)
-    json_path.write_text(meta.to_json())
+    json_path.write_text(meta.to_json(), encoding="utf-8")
     return npy_path
 
 
 def save_pair(root: Path, clean_clip: np.ndarray, noisy_clip: np.ndarray,
               label: str, signer_id: str, fps: int = 30,
-              notes: str = "") -> tuple[Path, Path]:
+              notes: str = "", language: str = "khmer") -> tuple[Path, Path]:
     """Save the same take in both views, sharing a variant index."""
     variant = max(
-        next_variant(root, label, signer_id, Source.REAL, View.CLEAN),
-        next_variant(root, label, signer_id, Source.REAL, View.NOISY),
+        next_variant(root, label, signer_id, Source.REAL, View.CLEAN, language),
+        next_variant(root, label, signer_id, Source.REAL, View.NOISY, language),
     )
     clean_meta = SampleMeta(label=label, signer_id=signer_id,
                             source=Source.REAL, view=View.CLEAN,
-                            fps=fps, variant=variant, notes=notes)
+                            language=language, fps=fps,
+                            variant=variant, notes=notes)
     noisy_meta = SampleMeta(label=label, signer_id=signer_id,
                             source=Source.REAL, view=View.NOISY,
-                            fps=fps, variant=variant, notes=notes)
+                            language=language, fps=fps,
+                            variant=variant, notes=notes)
     p1 = save_sample(root, clean_clip, clean_meta)
     p2 = save_sample(root, noisy_clip, noisy_meta)
     return p1, p2
@@ -140,5 +148,5 @@ def save_pair(root: Path, clean_clip: np.ndarray, noisy_clip: np.ndarray,
 def load_sample(npy_path: Path) -> tuple[np.ndarray, SampleMeta]:
     clip = np.load(npy_path).astype(np.float32)
     json_path = npy_path.with_suffix(".json")
-    meta = SampleMeta.from_json(json_path.read_text())
+    meta = SampleMeta.from_json(json_path.read_text(encoding="utf-8"))
     return clip, meta

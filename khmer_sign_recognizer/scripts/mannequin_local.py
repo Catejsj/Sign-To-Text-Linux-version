@@ -1,28 +1,32 @@
-"""Local 3D mannequin — an articulated humanoid rendered in Open3D, driven
-live by RTMPose (body) + MediaPipe (hands) from src/capture.py.
+"""Synthetic-signer viewer — live 3D mannequins of synthetic signers.
 
-Everything is ONE process on ONE webcam. No browser, no WebSocket, no Godot.
+ONE webcam, ONE process. You sign in front of the camera. Your motion is
+captured (RTMPose body + MediaPipe hands) and retargeted live onto several
+mannequins, each with a DIFFERENT body — different arm length, shoulder
+width, hand size. Same sign, different bodies: that is synthetic data,
+shown in real time.
+
+There is no mannequin of you — you are already in the camera window, so a
+copy would be redundant. The 3D window shows only the synthetic signers.
+
 Two windows open:
-  - OpenCV window  — the camera feed with the tracked skeleton overlay
-  - Open3D window  — the 3D mannequin mirroring you
+  - OpenCV window  — your camera feed with the tracked skeleton overlay
+  - Open3D window  — the synthetic signers, posed live by your motion
 
-The mannequin is an artist's-mannequin style figure: tan capsule limbs,
-ellipsoid torso, sphere head, line-rigged fingers. It is upper-body only
-(head → hips) because that is what Khmer Sign Language uses and what the
-RTMPose joints in capture.py cover.
+Each figure is an artist's-mannequin style humanoid: tan capsule limbs,
+ellipsoid torso, sphere head, line-rigged fingers. Upper-body only.
 
-Keys (focus the OpenCV camera window):
+Keys (focus the camera window):
   q : quit
-  m : show / hide the mannequin
+  m : show / hide the synthetic signers
 
 Run:
-  cd "D:\\Projects\\Sign to Text\\khmer_sign_recognizer"
-  .\\venv\\Scripts\\Activate.ps1
-  pip install open3d            # one time
-  python scripts/mannequin_local.py
+  python scripts/mannequin_local.py              # 2 synthetic signers
+  python scripts/mannequin_local.py --synthetic 4
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -54,6 +58,11 @@ HAND_COLOR  = (0.20, 0.78, 1.00)   # cyan — finger lines
 
 # Scene scale — the figure ends up roughly 1.5 units tall.
 SCALE = 2.4
+
+# How many frames a lost hand is held before it's hidden. At ~12-15 fps
+# this is roughly 0.7 s — long enough to ride out a brief detection drop,
+# short enough that a genuinely-gone hand doesn't linger as a ghost.
+HAND_HIDE_AGE = 10
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -132,22 +141,23 @@ def make_sphere(color, res: int = 16) -> Part:
 class Mannequin:
     """An articulated upper-body humanoid. Build once, call update() per frame."""
 
-    def __init__(self):
-        # Solid body parts.
-        self.head   = make_sphere(BODY_COLOR, res=20)
-        self.neck   = make_cyl(BODY_COLOR)
-        self.chest  = make_sphere(BODY_COLOR, res=20)
-        self.pelvis = make_sphere(BODY_COLOR, res=20)
-        self.uarm_l = make_cyl(BODY_COLOR)
-        self.uarm_r = make_cyl(BODY_COLOR)
-        self.farm_l = make_cyl(BODY_COLOR)
-        self.farm_r = make_cyl(BODY_COLOR)
-        self.j_sh_l = make_sphere(JOINT_COLOR, res=12)
-        self.j_sh_r = make_sphere(JOINT_COLOR, res=12)
-        self.j_el_l = make_sphere(JOINT_COLOR, res=12)
-        self.j_el_r = make_sphere(JOINT_COLOR, res=12)
-        self.j_wr_l = make_sphere(JOINT_COLOR, res=12)
-        self.j_wr_r = make_sphere(JOINT_COLOR, res=12)
+    def __init__(self, body_color=BODY_COLOR, joint_color=JOINT_COLOR):
+        # Solid body parts. Colors are parameters so synthetic mannequins
+        # can be tinted differently from the real one.
+        self.head   = make_sphere(body_color, res=20)
+        self.neck   = make_cyl(body_color)
+        self.chest  = make_sphere(body_color, res=20)
+        self.pelvis = make_sphere(body_color, res=20)
+        self.uarm_l = make_cyl(body_color)
+        self.uarm_r = make_cyl(body_color)
+        self.farm_l = make_cyl(body_color)
+        self.farm_r = make_cyl(body_color)
+        self.j_sh_l = make_sphere(joint_color, res=12)
+        self.j_sh_r = make_sphere(joint_color, res=12)
+        self.j_el_l = make_sphere(joint_color, res=12)
+        self.j_el_r = make_sphere(joint_color, res=12)
+        self.j_wr_l = make_sphere(joint_color, res=12)
+        self.j_wr_r = make_sphere(joint_color, res=12)
 
         self.solids = [
             self.chest, self.pelvis, self.neck, self.head,
@@ -165,6 +175,8 @@ class Mannequin:
         self.joints: dict[str, np.ndarray] = {}
         self.lhand: np.ndarray | None = None
         self.rhand: np.ndarray | None = None
+        self.lhand_age = 0    # frames since this hand was last detected
+        self.rhand_age = 0
 
     @staticmethod
     def _make_hand() -> o3d.geometry.LineSet:
@@ -249,15 +261,27 @@ class Mannequin:
             r = joint_r * scl
             part.apply(blob_transform(j[key], r, r, r))
 
-        # Hands.
+        # Hands. A freshly-detected hand resets its age; a lost hand ages.
+        # Once a hand is stale past HAND_HIDE_AGE we collapse its LineSet
+        # onto the wrist (all lines zero-length = invisible) so it stops
+        # lingering as a frozen ghost.
         if lhand is not None:
-            self.lhand = lhand
+            self.lhand, self.lhand_age = lhand, 0
+        else:
+            self.lhand_age += 1
         if rhand is not None:
-            self.rhand = rhand
+            self.rhand, self.rhand_age = rhand, 0
+        else:
+            self.rhand_age += 1
+
         if self.lhand is not None:
-            self.hand_l.points = o3d.utility.Vector3dVector(self.lhand)
+            pts = (self.lhand if self.lhand_age <= HAND_HIDE_AGE
+                   else np.tile(j["l_wrist"], (21, 1)))
+            self.hand_l.points = o3d.utility.Vector3dVector(pts)
         if self.rhand is not None:
-            self.hand_r.points = o3d.utility.Vector3dVector(self.rhand)
+            pts = (self.rhand if self.rhand_age <= HAND_HIDE_AGE
+                   else np.tile(j["r_wrist"], (21, 1)))
+            self.hand_r.points = o3d.utility.Vector3dVector(pts)
 
     @staticmethod
     def _cyl(p0: np.ndarray, p1: np.ndarray, radius: float) -> np.ndarray:
@@ -296,10 +320,58 @@ def hand_to_3d(hand: dict, W: int, H: int, wrist_anchor: np.ndarray) -> np.ndarr
     return pts + offset
 
 
+def retarget_scene(joints: dict[str, np.ndarray],
+                   lhand: np.ndarray | None, rhand: np.ndarray | None,
+                   sh: float, ua: float, fa: float, hd: float,
+                   xoff: float) -> tuple[dict, np.ndarray | None, np.ndarray | None]:
+    """Rebuild a scene-space pose onto a DIFFERENT body and shift it sideways.
+
+    Bone lengths are scaled (shoulder width, upper arm, forearm, hand);
+    every joint ANGLE is preserved — so it's the same sign performed by a
+    different-bodied signer. This is the synthetic generator, run live,
+    per frame. Same math as src/v2/retarget.py, in scene coordinates.
+    """
+    j = {k: v.copy() for k, v in joints.items()}
+    if "l_shoulder" in joints and "r_shoulder" in joints:
+        mid = (joints["l_shoulder"] + joints["r_shoulder"]) / 2.0
+        for s in ("l", "r"):
+            sk, ek, wk = f"{s}_shoulder", f"{s}_elbow", f"{s}_wrist"
+            if sk not in joints:
+                continue
+            j[sk] = mid + (joints[sk] - mid) * sh
+            if ek in joints:
+                j[ek] = j[sk] + (joints[ek] - joints[sk]) * ua
+                if wk in joints:
+                    j[wk] = j[ek] + (joints[wk] - joints[ek]) * fa
+
+    new_lhand = new_rhand = None
+    if lhand is not None and "l_wrist" in joints:
+        new_lhand = j["l_wrist"] + (lhand - joints["l_wrist"]) * hd
+    if rhand is not None and "r_wrist" in joints:
+        new_rhand = j["r_wrist"] + (rhand - joints["r_wrist"]) * hd
+
+    off = np.array([xoff, 0.0, 0.0])
+    for k in j:
+        j[k] = j[k] + off
+    if new_lhand is not None:
+        new_lhand = new_lhand + off
+    if new_rhand is not None:
+        new_rhand = new_rhand + off
+    return j, new_lhand, new_rhand
+
+
 # ─────────────────────────────────────────────────────────────────────
 #  Main
 # ─────────────────────────────────────────────────────────────────────
 def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--synthetic", type=int, default=1, metavar="N",
+                    help="number of synthetic signers to show — each a "
+                         "different body, posed live by your motion. "
+                         "Default 1 (= 2 data sources total: your real "
+                         "landmarks + 1 synthetic body). More = lower FPS.")
+    args = ap.parse_args()
+
     cfg = load_config(str(ROOT / "config" / "settings.json"))
     setup_logging(cfg)
     W = cfg["capture"]["width"]
@@ -311,12 +383,32 @@ def main() -> None:
         print("ERROR: camera failed to start")
         return
 
-    mannequin = Mannequin()
+    rng = np.random.default_rng()
+
+    # Synthetic signers. Each is a mannequin with a fixed random body
+    # (shoulder width, upper-arm, forearm, hand size), posed live by YOUR
+    # motion. There is no mannequin of YOU — you are already in the camera
+    # window, a copy would be redundant. These figures ARE the synthetic
+    # data: the same sign, on bodies that are not yours.
+    N = max(1, args.synthetic)
+    spacing = 2.6
+    xs = (np.arange(N) - (N - 1) / 2.0) * spacing   # centred row of figures
+    synths: list[tuple[Mannequin, dict]] = []
+    for i in range(N):
+        body = dict(
+            sh=float(rng.uniform(0.80, 1.20)),
+            ua=float(rng.uniform(0.80, 1.20)),
+            fa=float(rng.uniform(0.80, 1.20)),
+            hd=float(rng.uniform(0.80, 1.20)),
+            xoff=float(xs[i]),
+        )
+        synths.append((Mannequin(), body))
 
     vis = o3d.visualization.Visualizer()
-    vis.create_window("SignLink — Local Mannequin", width=900, height=900)
-    for g in mannequin.geometries():
-        vis.add_geometry(g)
+    vis.create_window("SignLink — Synthetic Signers", width=1200, height=850)
+    for mq, _ in synths:
+        for g in mq.geometries():
+            vis.add_geometry(g)
     opt = vis.get_render_option()
     opt.background_color = np.array([0.05, 0.06, 0.09])
     opt.light_on = True
@@ -325,14 +417,14 @@ def main() -> None:
     vc.set_front([0.0, 0.0, 1.0])
     vc.set_up([0.0, 1.0, 0.0])
     vc.set_lookat([0.0, 0.0, 0.0])
-    vc.set_zoom(0.9)
+    vc.set_zoom(0.75 + 0.14 * N)
 
-    mannequin_shown = True
-    print("\nRunning. Focus the camera window:  q = quit,  m = show/hide mannequin.\n")
+    shown = True
+    print(f"\n{N} synthetic signer(s) — same motion as you, different bodies.")
+    print("Focus the camera window:  q = quit,  m = show/hide.\n")
 
     try:
         while True:
-            # ── pull latest landmarks ──
             with capture.result_lock:
                 pose = dict(capture.latest_pose)
                 lh = dict(capture.latest_left_hand)
@@ -350,10 +442,8 @@ def main() -> None:
                 if src_name in pose:
                     joints[dst_name] = body_to_3d(pose[src_name], W, H)
 
-            # Pull the wrists toward the camera. The body is a flat z=0
-            # plane, so without this the hands sit inside the torso
-            # volume. Moving the wrists forward angles the forearms out
-            # and puts the hands cleanly in front — like a real signer.
+            # Pull wrists toward the camera so hands sit in front of the
+            # flat z=0 body plane instead of inside the torso.
             if "l_shoulder" in joints and "r_shoulder" in joints:
                 sw = float(np.linalg.norm(joints["l_shoulder"]
                                           - joints["r_shoulder"]))
@@ -369,31 +459,37 @@ def main() -> None:
             if "r_wrist" in joints:
                 rhand = hand_to_3d(rh, W, H, joints["r_wrist"])
 
-            if mannequin_shown:
-                mannequin.update(joints, lhand, rhand)
-                for g in mannequin.geometries():
-                    vis.update_geometry(g)
+            if shown:
+                for mq, body in synths:
+                    sj, sl, sr = retarget_scene(
+                        joints, lhand, rhand,
+                        body["sh"], body["ua"], body["fa"], body["hd"],
+                        body["xoff"])
+                    mq.update(sj, sl, sr)
+                for mq, _ in synths:
+                    for g in mq.geometries():
+                        vis.update_geometry(g)
 
             if not vis.poll_events():
                 break          # Open3D window closed
             vis.update_renderer()
 
-            # ── camera window with the tracked skeleton overlay ──
             ret, frame = capture.read_frame()
             if ret and frame is not None:
-                cv2.imshow("SignLink — Camera (q quit, m toggle mannequin)", frame)
+                cv2.imshow("SignLink — Camera (q quit, m toggle)", frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
             if key == ord("m"):
-                mannequin_shown = not mannequin_shown
-                for g in mannequin.geometries():
-                    if mannequin_shown:
-                        vis.add_geometry(g, reset_bounding_box=False)
-                    else:
-                        vis.remove_geometry(g, reset_bounding_box=False)
-                print(f"mannequin {'shown' if mannequin_shown else 'hidden'}")
+                shown = not shown
+                for mq, _ in synths:
+                    for g in mq.geometries():
+                        if shown:
+                            vis.add_geometry(g, reset_bounding_box=False)
+                        else:
+                            vis.remove_geometry(g, reset_bounding_box=False)
+                print(f"synthetic signers {'shown' if shown else 'hidden'}")
     finally:
         capture.stop()
         vis.destroy_window()

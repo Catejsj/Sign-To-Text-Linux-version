@@ -24,6 +24,9 @@ logs/
 # ── Recorded training data (synced via Drive, not Git) ──
 data/
 *.npy
+# ── EXCEPT labels.json — small shared text file so every teammate's
+#    recorder sees the same standard label list ──
+!data/sequences_v2/*/labels.json
 
 # ── Trained model weights (synced via Drive, not Git) ──
 models/

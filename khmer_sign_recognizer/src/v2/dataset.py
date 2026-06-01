@@ -18,16 +18,25 @@ from .schema import SampleMeta, Source, SEQ_LEN, NUM_JOINTS, NUM_COORDS
 from .augment import augment_clip
 
 
-def discover_samples(root: Path) -> list[tuple[Path, SampleMeta]]:
-    """Walk data/sequences_v2 and return every (.npy, meta) pair."""
+def discover_samples(root: Path,
+                     language: Optional[str] = None) -> list[tuple[Path, SampleMeta]]:
+    """Walk data/sequences_v2/<lang>/<label>/ and return every (.npy, meta).
+
+    If `language` is given, only samples from that language folder are returned.
+    None = all languages."""
     out = []
-    for label_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        for npy in sorted(label_dir.glob("*.npy")):
-            meta_path = npy.with_suffix(".json")
-            if not meta_path.exists():
-                continue
-            meta = SampleMeta.from_json(meta_path.read_text())
-            out.append((npy, meta))
+    if not root.exists():
+        return out
+    for lang_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        if language is not None and lang_dir.name != language:
+            continue
+        for label_dir in sorted(p for p in lang_dir.iterdir() if p.is_dir()):
+            for npy in sorted(label_dir.glob("*.npy")):
+                meta_path = npy.with_suffix(".json")
+                if not meta_path.exists():
+                    continue
+                meta = SampleMeta.from_json(meta_path.read_text(encoding="utf-8"))
+                out.append((npy, meta))
     return out
 
 

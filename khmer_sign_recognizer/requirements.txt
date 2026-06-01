@@ -11,6 +11,9 @@ numpy==2.4.4
 # Utilities
 python-json-logger==4.1.0
 
+# Unicode text rendering on the camera overlay (Khmer + any other language)
+pillow>=10.0
+
 # 3D mannequin rendering (scripts/mannequin_local.py)
 open3d>=0.18.0
 

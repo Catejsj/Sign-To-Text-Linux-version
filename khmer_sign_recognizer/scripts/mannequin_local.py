@@ -23,23 +23,27 @@ Keys (focus the camera window):
 Run:
   python scripts/mannequin_local.py              # 2 synthetic signers
   python scripts/mannequin_local.py --synthetic 4
+
+Playback mode (no camera, animates saved .npy takes):
+  python scripts/mannequin_local.py --playback data/sequences_v2/autsl --count 5
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
 
-import cv2
 import numpy as np
 import open3d as o3d
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.capture import LandmarkCapture            # noqa: E402
-from src.utils import load_config, setup_logging   # noqa: E402
+# cv2 + capture are only needed for the live (camera) mode. Importing them
+# inside main() avoids requiring a working camera/MediaPipe setup just to
+# run --playback.
 
 # MediaPipe hand bone topology — 21 edges connecting the 21 landmarks.
 HAND_BONES = [
@@ -361,6 +365,161 @@ def retarget_scene(joints: dict[str, np.ndarray],
 
 
 # ─────────────────────────────────────────────────────────────────────
+#  Playback mode — animate the mannequin from saved .npy takes
+# ─────────────────────────────────────────────────────────────────────
+def _frame_to_scene(frame: np.ndarray) -> np.ndarray:
+    """A saved (48, 3) frame → mannequin scene coords.
+
+    The saved data uses MediaPipe / image conventions:
+      - x: pixel column (0 = image left, larger = image right). A person
+        facing the camera has their anatomical LEFT side on the image RIGHT,
+        i.e. at HIGH x.
+      - y: pixel row (0 = top, larger = bottom). Scene y goes up, so flip.
+      - z: smaller = closer to camera. Scene z grows toward the viewer
+        (default Open3D camera looks down -z), so flip.
+
+    The live `body_to_3d` and `hand_to_3d` paths flip all three for the
+    same reason. We do the same here so playback handedness matches what
+    you'd see in live mode.
+    """
+    out = frame.astype(np.float64).copy()
+    out[:, 0] = -out[:, 0]
+    out[:, 1] = -out[:, 1]
+    out[:, 2] = -out[:, 2]
+    return out
+
+
+def _prepare_scene_frame(scene: np.ndarray) -> np.ndarray:
+    """Match the live-mode body/hand depth convention.
+
+    The mannequin renderer assumes the body sits at z=0 (a flat plane) and
+    that hands are pushed slightly in front of the torso so they don't
+    phase through the chest. Live mode enforces this by setting body z=0
+    and shifting wrists forward by ~0.32 * shoulder_width. We do the same
+    here. Hand-internal relative structure is preserved by translating
+    each whole hand so its own landmark-0 lands on the (now forward-shifted)
+    body wrist.
+    """
+    out = scene.copy()
+    # Body joints 0..5 → flat plane (matches live mode body_to_3d).
+    out[:6, 2] = 0.0
+
+    sw = float(np.linalg.norm(out[0] - out[1])) + 1e-6
+    fwd = sw * 0.32
+    out[4, 2] = fwd   # L_WRIST forward
+    out[5, 2] = fwd   # R_WRIST forward
+
+    # Realign each hand to its body wrist while preserving the hand's
+    # internal shape — translate the whole 21-point cluster so its own
+    # wrist (landmark 0) sits on the body wrist.
+    out[6:27]  += out[4] - out[6]
+    out[27:48] += out[5] - out[27]
+    return out
+
+
+def _label_for(npy_path: Path) -> str:
+    """Read the label from the .json sidecar, fall back to the folder name."""
+    json_path = npy_path.with_suffix(".json")
+    try:
+        meta = json.loads(json_path.read_text(encoding="utf-8"))
+        return f"{meta.get('label', npy_path.parent.name)}  " \
+               f"[signer={meta.get('signer_id', '?')}]"
+    except Exception:
+        return npy_path.parent.name
+
+
+def run_playback(folder: Path, count: int, fps: float = 12.0,
+                 prefer_view: str = "clean") -> None:
+    """Animate `count` random saved takes from `folder` in the 3D mannequin.
+
+    Picks files matching `*real__<view>__*.npy` so we only play back real
+    captures (not synthetic retargeted ones — those would be redundant in
+    a viewer whose whole point is to verify the import). Pass
+    prefer_view='noisy' to use the raw [0,1] image-space view instead of
+    the shoulder-normalized clean view.
+    """
+    pattern = f"*real__{prefer_view}__*.npy"
+    files = sorted(folder.rglob(pattern))
+    if not files:
+        sys.exit(f"no '{pattern}' files found under {folder}")
+
+    rng = np.random.default_rng()
+    pick = min(count, len(files))
+    chosen = rng.choice(np.array(files, dtype=object), size=pick, replace=False)
+
+    print(f"playback: {len(files)} files available, showing {pick}")
+    print("close the Open3D window to quit.\n")
+
+    mannequin = Mannequin()
+    vis = o3d.visualization.Visualizer()
+    vis.create_window("SignLink — Playback", width=1100, height=820)
+    for g in mannequin.geometries():
+        vis.add_geometry(g)
+    opt = vis.get_render_option()
+    opt.background_color = np.array([0.05, 0.06, 0.09])
+    opt.light_on = True
+
+    vc = vis.get_view_control()
+    vc.set_front([0.0, 0.0, 1.0])
+    vc.set_up([0.0, 1.0, 0.0])
+    vc.set_lookat([0.0, 0.0, 0.0])
+    vc.set_zoom(0.75)
+
+    dt = 1.0 / max(fps, 1.0)
+    try:
+        for k, npy_path in enumerate(chosen, start=1):
+            clip = np.load(npy_path)
+            if clip.shape[1:] != (48, 3):
+                print(f"  [skip] {npy_path.name}: unexpected shape {clip.shape}")
+                continue
+
+            label = _label_for(Path(npy_path))
+            print(f"  [{k}/{pick}] {label}   ({Path(npy_path).name})")
+
+            for t in range(clip.shape[0]):
+                scene = _prepare_scene_frame(_frame_to_scene(clip[t]))
+
+                joints = {
+                    "l_shoulder": scene[0],
+                    "r_shoulder": scene[1],
+                    "l_elbow":    scene[2],
+                    "r_elbow":    scene[3],
+                    "l_wrist":    scene[4],
+                    "r_wrist":    scene[5],
+                }
+                # The saved data has no nose. Synthesize one above the
+                # shoulder midpoint so the head/neck render reasonably.
+                mid = (joints["l_shoulder"] + joints["r_shoulder"]) / 2.0
+                sw = float(np.linalg.norm(
+                    joints["l_shoulder"] - joints["r_shoulder"])) + 1e-6
+                joints["nose"] = mid + np.array([0.0, sw * 0.45, 0.0])
+
+                lhand = scene[6:27]
+                rhand = scene[27:48]
+                mannequin.update(joints, lhand, rhand)
+
+                for g in mannequin.geometries():
+                    vis.update_geometry(g)
+                if not vis.poll_events():
+                    return
+                vis.update_renderer()
+                time.sleep(dt)
+
+            # Brief pause between takes so the eye can register the change.
+            for _ in range(int(0.5 / dt)):
+                if not vis.poll_events():
+                    return
+                time.sleep(dt)
+
+        print("\nplayback done — close the window to exit.")
+        while vis.poll_events():
+            vis.update_renderer()
+            time.sleep(dt)
+    finally:
+        vis.destroy_window()
+
+
+# ─────────────────────────────────────────────────────────────────────
 #  Main
 # ─────────────────────────────────────────────────────────────────────
 def main() -> None:
@@ -370,7 +529,35 @@ def main() -> None:
                          "different body, posed live by your motion. "
                          "Default 1 (= 2 data sources total: your real "
                          "landmarks + 1 synthetic body). More = lower FPS.")
+    ap.add_argument("--playback", type=str, default=None, metavar="FOLDER",
+                    help="don't open the camera; instead animate saved "
+                         "takes from FOLDER (e.g. data/sequences_v2/autsl). "
+                         "Useful for visually sanity-checking imported "
+                         "datasets.")
+    ap.add_argument("--count", type=int, default=5, metavar="N",
+                    help="how many random takes to play in --playback "
+                         "mode (default 5).")
+    ap.add_argument("--view", choices=["clean", "noisy"], default="clean",
+                    help="which saved view to play back (default: clean).")
+    ap.add_argument("--fps", type=float, default=12.0,
+                    help="playback speed in --playback mode "
+                         "(default 12; the takes were recorded at 30, "
+                         "so 12 plays them slow enough to follow).")
     args = ap.parse_args()
+
+    if args.playback:
+        folder = Path(args.playback)
+        if not folder.exists():
+            sys.exit(f"--playback folder does not exist: {folder}")
+        run_playback(folder, count=args.count, prefer_view=args.view,
+                     fps=args.fps)
+        return
+
+    # Live mode needs the camera + landmark pipeline. Import here so
+    # --playback works on a machine with no camera / no MediaPipe.
+    import cv2                                              # noqa: F401
+    from src.capture import LandmarkCapture                 # noqa: E402
+    from src.utils import load_config, setup_logging        # noqa: E402
 
     cfg = load_config(str(ROOT / "config" / "settings.json"))
     setup_logging(cfg)

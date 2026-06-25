@@ -64,6 +64,7 @@ def load_split(
     view: View = View.CLEAN,
     feature_mode: str = "summary",
     label_to_idx: Optional[dict[str, int]] = None,
+    holdout_signer: Optional[str] = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str], dict[str, int]]:
     """Return (X, y, signer_ids, label_to_idx) for one split.
 
@@ -72,6 +73,12 @@ def load_split(
     signer_ids   : list[str], len N — for per-signer scoring
     label_to_idx : the label->index map (pass it back in for other splits
                    so val/test use the same indexing as train)
+
+    holdout_signer: if given, ignore the _train/_val/_test suffixes and do
+                    leave-one-signer-out instead — the train split is every
+                    signer EXCEPT this one, and val/test is ONLY this one.
+                    Use when your data has no built-in val split (e.g. a few
+                    teammates' recordings) and you want to test on one of them.
     """
     if split not in VALID_SPLITS:
         raise ValueError(f"split must be one of {VALID_SPLITS}, got {split!r}")
@@ -100,7 +107,14 @@ def load_split(
 
     X, y, signers = [], [], []
     for npy, meta in all_samples:
-        if split_of(meta.signer_id) != split:
+        if holdout_signer is not None:
+            is_holdout = (meta.signer_id == holdout_signer)
+            # train = everyone except the held-out signer; val/test = only them
+            if split == "train" and is_holdout:
+                continue
+            if split in ("val", "test") and not is_holdout:
+                continue
+        elif split_of(meta.signer_id) != split:
             continue
         if meta.source not in allowed_sources:
             continue

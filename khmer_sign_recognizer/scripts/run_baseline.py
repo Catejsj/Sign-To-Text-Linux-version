@@ -82,18 +82,26 @@ def main() -> None:
     ap.add_argument("--features", default="summary",
                     choices=["summary", "flat"],
                     help="feature representation (default: summary)")
+    ap.add_argument("--holdout", default=None,
+                    help="leave-one-signer-out: train on everyone EXCEPT this "
+                         "signer, test on ONLY this signer. Use when your data "
+                         "has no built-in val split (e.g. a few teammates' "
+                         "recordings). Example: --holdout chingsan")
     args = ap.parse_args()
 
     print(f"algo={args.algo}  lang={args.lang}  train-mode={args.mode}  "
-          f"eval-on={args.eval_on}  features={args.features}")
+          f"eval-on={args.eval_on}  features={args.features}"
+          + (f"  holdout={args.holdout}" if args.holdout else ""))
 
     # Train split (mode-dependent), then eval split (always real) with the
     # SAME label index.
     Xtr, ytr, _, l2i = load_split(
-        "train", args.lang, source_mode=args.mode, feature_mode=args.features)
+        "train", args.lang, source_mode=args.mode, feature_mode=args.features,
+        holdout_signer=args.holdout)
     Xev, yev, sev, _ = load_split(
         args.eval_on, args.lang, source_mode="real",
-        feature_mode=args.features, label_to_idx=l2i)
+        feature_mode=args.features, label_to_idx=l2i,
+        holdout_signer=args.holdout)
 
     idx_to_label = {i: lab for lab, i in l2i.items()}
     print(f"train: {Xtr.shape[0]} samples x {Xtr.shape[1]} features"

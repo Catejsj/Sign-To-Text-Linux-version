@@ -53,9 +53,9 @@ get_ipython().system('pip install -q scikit-learn numpy')
 # belongs. So it works no matter how anyone nested the folders on Drive
 # (turkish/piseth/aile, recordings/piseth, whatever).
 #
-# >>> SET THIS to the Drive folder that holds your data (AUTSL base AND
-#     everyone's recordings can live anywhere under it). <<<
-SRC = DRIVE   # e.g. '/content/drive/MyDrive/SignLink'
+# >>> SET THIS to the folder that holds your recordings. Point it at the
+#     specific folder (NOT all of MyDrive) so it doesn't grab old Khmer data.
+SRC = '/content/drive/MyDrive/SignLink/data/sequences_v2/turkish'
 
 # Force EVERY file into one language folder, no matter what each person
 # typed (--lang autsl vs turkish vs ...). This normalizes the "who used
@@ -64,11 +64,23 @@ SRC = DRIVE   # e.g. '/content/drive/MyDrive/SignLink'
 # training stay consistent. Set to None to keep each file's own language.
 FORCE_LANG = 'autsl'
 
-import shutil, json
+import shutil, json, zipfile
 from pathlib import Path
 
 DATA = Path('/content/Sign-to-Text/khmer_sign_recognizer/data/sequences_v2')
 DATA.mkdir(parents=True, exist_ok=True)
+
+# Unzip the AUTSL base (real Turkish signers — they carry the held-out
+# val/test split your teammates don't have). Expected next to the
+# recordings on Drive as autsl_base.zip.
+base_zip = Path(SRC) / 'autsl_base.zip'
+if base_zip.exists():
+    with zipfile.ZipFile(base_zip) as z:
+        z.extractall(DATA)
+    print('unzipped AUTSL base ->', DATA / 'autsl')
+else:
+    print('WARNING: no autsl_base.zip at', base_zip,
+          '\n  -> training will have NO test signers. Upload the base first.')
 
 copied = skipped = 0
 by_signer: dict[str, int] = {}

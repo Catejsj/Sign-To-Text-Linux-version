@@ -45,63 +45,78 @@ get_ipython().run_line_magic('cd', '/content/Sign-to-Text/khmer_sign_recognizer'
 get_ipython().system('pip install -q scikit-learn numpy')
 
 # ============================================================================
-# CELL 3 — pull the POOLED data: AUTSL base + everyone's recordings
+# CELL 3 — pull ALL data from Drive, route each file by its OWN metadata
 # ============================================================================
-# Copies the shared AUTSL base, then merges every teammate's recordings on
-# top. Signer tags in the filenames keep files from colliding, so merging is
-# a plain copy.
-import shutil, glob
+# We do NOT depend on the Drive folder structure. Every .npy has a .json
+# next to it that says its language, label, signer, and source. We glob
+# every .npy under the Drive folder and place it where its metadata says it
+# belongs. So it works no matter how anyone nested the folders on Drive
+# (turkish/piseth/aile, recordings/piseth, whatever).
+#
+# >>> SET THIS to the Drive folder that holds your data (AUTSL base AND
+#     everyone's recordings can live anywhere under it). <<<
+SRC = DRIVE   # e.g. '/content/drive/MyDrive/SignLink'
+
+# Force EVERY file into one language folder, no matter what each person
+# typed (--lang autsl vs turkish vs ...). This normalizes the "who used
+# which language name" mess so all recordings merge into one dataset. The
+# json's language field is rewritten to match so synthetic generation and
+# training stay consistent. Set to None to keep each file's own language.
+FORCE_LANG = 'autsl'
+
+import shutil, json
 from pathlib import Path
 
 DATA = Path('/content/Sign-to-Text/khmer_sign_recognizer/data/sequences_v2')
 DATA.mkdir(parents=True, exist_ok=True)
 
-# 3a. AUTSL base (real Turkish data, uploaded once to Drive)
-src_autsl = Path(DRIVE) / 'data' / 'sequences_v2' / 'autsl'
-if src_autsl.exists():
-    shutil.copytree(src_autsl, DATA / 'autsl', dirs_exist_ok=True)
-    print('copied AUTSL base')
-else:
-    print('WARNING: no AUTSL base at', src_autsl)
+copied = skipped = 0
+by_signer: dict[str, int] = {}
+for npy in Path(SRC).rglob('*.npy'):
+    js = npy.with_suffix('.json')
+    if not js.exists():
+        skipped += 1
+        continue
+    try:
+        meta = json.loads(js.read_text(encoding='utf-8'))
+    except Exception:
+        skipped += 1
+        continue
+    label = meta.get('label', npy.parent.name)
+    lang = FORCE_LANG or meta.get('language', 'unknown')
+    meta['language'] = lang                       # normalize the field too
+    dst = DATA / lang / label
+    dst.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(npy, dst / npy.name)
+    (dst / js.name).write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
+    copied += 1
+    sg = meta.get('signer_id', '?')
+    by_signer[sg] = by_signer.get(sg, 0) + 1
 
-# 3b. everyone's recordings (recordings/<name>/sequences_v2/...)
-rec_root = Path(DRIVE) / 'recordings'
-merged = 0
-if rec_root.exists():
-    for person in sorted(rec_root.iterdir()):
-        seq = person / 'sequences_v2'
-        if not seq.is_dir():
-            continue
-        for npy in seq.rglob('*.npy'):
-            rel = npy.relative_to(seq)
-            dst = DATA / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(npy, dst)
-            j = npy.with_suffix('.json')
-            if j.exists():
-                shutil.copy2(j, dst.with_suffix('.json'))
-            merged += 1
-        print('merged recordings from', person.name)
-print(f'merged {merged} recorded takes total')
+print(f'routed {copied} samples into language="{FORCE_LANG}" '
+      f'(skipped {skipped} with no json)')
+print('by signer:', by_signer)
 
 # ============================================================================
 # CELL 4 — (re)generate synthetic on the POOLED real data
 # ============================================================================
-# 1 synthetic per real take (matches the local setting). Bump --per-take for
-# a stronger effect.
-get_ipython().system('python scripts/generate_synthetic.py --per-take 1 --clean')
+# Set LANG to the language you're training (matches the json 'language'
+# field, e.g. 'autsl'). 1 synthetic per real take; bump --per-take for more.
+LANG = 'autsl'
+get_ipython().system(f'python scripts/generate_synthetic.py --language {LANG} --per-take 1 --clean')
 
 # ============================================================================
 # CELL 5 — >>> SET YOUR ALGORITHM HERE <<<  then run the two comparisons
 # ============================================================================
-# Pick ONE: knn | logreg | rf | svm | nb | tree | gboost | lda
-ALGO = 'knn'
+# Pick ONE: lda | logreg | rf | svm | nb | tree | knn  (lda was best for us)
+ALGO = 'lda'
 
 print('=== RUN A: real only ===')
-get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang autsl --mode real')
+get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang {LANG} --mode real')
 
 print('\n=== RUN B: real + synthetic ===')
-get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang autsl --mode both')
+get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang {LANG} --mode both')
 
 # ============================================================================
 # CELL 6 — copy the shared results table back to Drive

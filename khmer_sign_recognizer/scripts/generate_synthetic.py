@@ -31,24 +31,30 @@ from src.v2.schema import SEQ_LEN, NUM_JOINTS, NUM_COORDS, load_sample  # noqa: 
 from src.v2.retarget import generate_variants                          # noqa: E402
 
 
-def discover_real_noisy(root: Path) -> list[Path]:
+def discover_real_noisy(root: Path, language: str | None = None) -> list[Path]:
     """Every real take's NOISY .npy under root/<lang>/<label>/.
-    We retarget the raw-proportion view."""
+    We retarget the raw-proportion view. If `language` is given, only that
+    language folder is processed (so you don't re-roll other folders)."""
     out = []
     if not root.exists():
         return out
     for lang_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        if language is not None and lang_dir.name != language:
+            continue
         for label_dir in sorted(p for p in lang_dir.iterdir() if p.is_dir()):
             out.extend(sorted(label_dir.glob("*__real__noisy__*.npy")))
     return out
 
 
-def wipe_synthetic(root: Path) -> int:
-    """Delete every previously-generated synthetic sample. Returns count."""
+def wipe_synthetic(root: Path, language: str | None = None) -> int:
+    """Delete previously-generated synthetic samples. Returns count.
+    If `language` is given, only that language folder is wiped."""
     n = 0
     if not root.exists():
         return 0
     for lang_dir in (p for p in root.iterdir() if p.is_dir()):
+        if language is not None and lang_dir.name != language:
+            continue
         for label_dir in (p for p in lang_dir.iterdir() if p.is_dir()):
             for p in label_dir.glob("*__synthetic__*"):
                 p.unlink()
@@ -59,6 +65,9 @@ def wipe_synthetic(root: Path) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=str(ROOT / "data" / "sequences_v2"))
+    ap.add_argument("--language", default=None,
+                    help="only process this language folder (e.g. autsl10). "
+                         "Default: all language folders.")
     ap.add_argument("--per-take", type=int, default=6,
                     help="synthetic signers to generate per real take")
     ap.add_argument("--jitter", type=float, default=0.20,
@@ -73,9 +82,9 @@ def main() -> None:
     rng = np.random.default_rng(args.seed)
 
     if args.clean:
-        print(f"removed {wipe_synthetic(root)} old synthetic files")
+        print(f"removed {wipe_synthetic(root, args.language)} old synthetic files")
 
-    real = discover_real_noisy(root)
+    real = discover_real_noisy(root, args.language)
     if not real:
         print(f"No real takes found under {root}.")
         print("Record some first:  python scripts/record_session.py --signer you")

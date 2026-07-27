@@ -16,25 +16,26 @@ import sys
 from threading import Thread, Lock
 from queue import Queue, Empty
 
+try:                                        # running as a package: src.capture
+    from .cuda_setup import preload_cuda_libs as _preload_cuda_libs
+except ImportError:                         # running the file directly
+    from cuda_setup import preload_cuda_libs as _preload_cuda_libs
+
 logger = logging.getLogger(__name__)
 
 
-def _add_nvidia_dlls():
-    venv_path = os.path.dirname(sys.executable)
-    site_packages = os.path.join(os.path.dirname(venv_path), 'Lib', 'site-packages')
-    nvidia_bins = [
-        os.path.join(site_packages, 'nvidia', 'cublas', 'bin'),
-        os.path.join(site_packages, 'nvidia', 'cudnn', 'bin'),
-        os.path.join(site_packages, 'nvidia', 'cuda_runtime', 'bin'),
-    ]
-    for path in nvidia_bins:
-        if os.path.exists(path):
-            try:
-                os.add_dll_directory(path)
-            except Exception:
-                pass
+_preload_cuda_libs()
 
-_add_nvidia_dlls()
+
+# DirectShow exists only on Windows; V4L2 is the Linux equivalent. Passing a
+# backend the platform does not have makes OpenCV probe and fail before the
+# fallback kicks in, which costs seconds of startup.
+if sys.platform == 'win32':
+    CAMERA_BACKEND, CAMERA_BACKEND_NAME = cv2.CAP_DSHOW, 'DSHOW'
+elif sys.platform.startswith('linux'):
+    CAMERA_BACKEND, CAMERA_BACKEND_NAME = cv2.CAP_V4L2, 'V4L2'
+else:
+    CAMERA_BACKEND, CAMERA_BACKEND_NAME = cv2.CAP_ANY, 'ANY'
 
 
 class OneEuroFilter:
@@ -148,7 +149,12 @@ class LandmarkCapture:
         self.mp_canvas      = None
         self.mp_canvas_lock = Lock()
         self.mp_canvas_ttl  = 0
-        self.MP_CANVAS_MAX_TTL = 5  # freeze for 5 frames then clear
+        # Hold the last hand drawing this many MediaPipe frames before clearing
+        # it. MediaPipe is capped near 20fps, so 5 frames meant a single dropped
+        # detection blanked the hands for ~0.25s — in poor light that reads as
+        # constant flicker. 15 frames (~0.75s) rides out the dropouts.
+        # Display only: recorded landmarks are unaffected.
+        self.MP_CANVAS_MAX_TTL = 15
 
         # MediaPipe smoothing filters
         self.mp_filters: Dict[str, OneEuroFilter] = {}
@@ -180,10 +186,10 @@ class LandmarkCapture:
     def start(self) -> bool:
         try:
             self.cap = cv2.VideoCapture(
-                self.cap_config['camera_id'], cv2.CAP_DSHOW
+                self.cap_config['camera_id'], CAMERA_BACKEND
             )
             if not self.cap.isOpened():
-                logger.warning("DSHOW failed, trying default...")
+                logger.warning("%s failed, trying default...", CAMERA_BACKEND_NAME)
                 self.cap = cv2.VideoCapture(self.cap_config['camera_id'])
 
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self.cap_config['width'])

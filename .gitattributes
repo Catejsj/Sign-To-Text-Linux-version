@@ -1,0 +1,26 @@
+# Normalize line endings across Windows (you, on Linux soon) and teammates (Windows).
+# Without this, CRLF vs LF differences make git show whole files as "changed"
+# even when nothing changed. This keeps cross-OS collaboration clean.
+
+# Default: let git normalize text files to LF in the repo, native on checkout.
+* text=auto eol=lf
+
+# Windows-only scripts must stay CRLF so they run correctly on Windows.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Shell scripts must stay LF even if edited on Windows.
+*.sh   text eol=lf
+
+# Binary files: never touch line endings or try to diff them.
+*.npy  binary
+*.onnx binary
+*.ttf  binary
+*.ttc  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pdf  binary
+*.zip  binary
+*.parquet binary

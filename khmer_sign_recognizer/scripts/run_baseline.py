@@ -49,6 +49,7 @@ def build_model(algo: str):
     from sklearn.naive_bayes import GaussianNB
     from sklearn.tree import DecisionTreeClassifier
     from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    from sklearn.neural_network import MLPClassifier
 
     estimators = {
         "knn":    KNeighborsClassifier(n_neighbors=5),
@@ -59,6 +60,10 @@ def build_model(algo: str):
         "tree":   DecisionTreeClassifier(random_state=0),
         "gboost": GradientBoostingClassifier(random_state=0),
         "lda":    LinearDiscriminantAnalysis(),
+        # MLP = small neural net (note: this is light deep-learning; check
+        # with the teacher if "simple algorithms only" excludes it).
+        "mlp":    MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=800,
+                                random_state=0),
     }
     if algo not in estimators:
         raise SystemExit(f"--algo must be one of {sorted(estimators)}")

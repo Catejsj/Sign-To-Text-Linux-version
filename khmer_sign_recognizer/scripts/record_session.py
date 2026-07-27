@@ -67,6 +67,12 @@ COUNTDOWN_S = 1.5
 DEFAULT_RECORD_S = 3.0        # plenty of room for slow signs by default
 MAX_RECORD_S     = 8.0        # hard safety cap so a stuck take can't run forever
 
+CAM_WINDOW = "SignLink — Camera + Mannequin (q to quit)"
+
+# Offscreen size of the mannequin render; it is scaled to the camera height
+# before being pasted next to the camera view.
+MANNEQUIN_W, MANNEQUIN_H = 1100, 780
+
 ASCII_SAFE = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 
@@ -79,6 +85,9 @@ def find_khmer_font_path() -> str | None:
         ROOT / "fonts" / "NotoSansKhmer-Regular.ttf",
         Path(r"C:\Windows\Fonts\KhmerUI.ttf"),
         Path(r"C:\Windows\Fonts\Khmerui.ttf"),
+        # Arch/CachyOS (noto-fonts) vs Debian/Ubuntu layouts.
+        Path("/usr/share/fonts/noto/NotoSansKhmer-Regular.ttf"),
+        Path("/usr/share/fonts/TTF/NotoSansKhmer-Regular.ttf"),
         Path("/usr/share/fonts/truetype/noto/NotoSansKhmer-Regular.ttf"),
         Path("/System/Library/Fonts/KhmerSangamMN.ttc"),
     ]
@@ -95,7 +104,7 @@ class OverlayFont:
         if not self.path:
             print("⚠ no Khmer font found. Camera-overlay Khmer text will "
                   "render as boxes. Drop NotoSansKhmer-Regular.ttf into "
-                  f"{ROOT / 'fonts'}\\")
+                  f"{ROOT / 'fonts'}")
 
     def _font(self, size: int):
         if size not in self._cache:
@@ -569,6 +578,14 @@ class Recorder:
         self.overlay = OverlayFont()
         self._preload_known_labels()
 
+        # WINDOW_NORMAL (rather than imshow's default WINDOW_AUTOSIZE) is what
+        # makes the camera window resizable / maximizable.
+        cv2.namedWindow(CAM_WINDOW, cv2.WINDOW_NORMAL)
+        win_w = self.img_w
+        if args.mannequin > 0 and HAS_OPEN3D:
+            win_w += int(MANNEQUIN_W * self.img_h / MANNEQUIN_H)
+        cv2.resizeWindow(CAM_WINDOW, win_w, self.img_h)
+
         # Optional Open3D mannequin window
         self.synths: list[tuple] = []
         self.vis = None
@@ -585,10 +602,16 @@ class Recorder:
                     xoff=float(xs[i]),
                 )
                 self.synths.append((Mannequin(), body))
+            # visible=False: the mannequin renders OFFSCREEN and is composited
+            # into the camera window (see _mannequin_image). Two on-screen GUI
+            # toolkits in one process — Open3D's GLFW/OpenGL window next to
+            # OpenCV's Qt window — leaves the Qt window painting solid black.
+            # Rendering offscreen sidesteps that and puts both views side by
+            # side in a single window.
             self.vis = o3d.visualization.Visualizer()
             self.vis.create_window(
                 "SignLink — Synthetic Signers (live)",
-                width=1100, height=780)
+                width=MANNEQUIN_W, height=MANNEQUIN_H, visible=False)
             for mq, _ in self.synths:
                 for g in mq.geometries():
                     self.vis.add_geometry(g)
@@ -693,14 +716,17 @@ class Recorder:
                 self.dialog.set_current(None)
 
         self._draw_overlay(frame, now)
-        cv2.imshow("SignLink — Camera (q to quit)", frame)
 
-        if self.vis is not None and has_pose:
-            self._update_mannequins(pose, lh, rh)
-            if not self.vis.poll_events():
-                self.dialog.closed = True
-                return
+        if self.vis is not None:
+            if has_pose:
+                self._update_mannequins(pose, lh, rh)
+            self.vis.poll_events()
             self.vis.update_renderer()
+            mann = self._mannequin_image(frame.shape[0])
+            if mann is not None:
+                frame = np.hstack([frame, mann])
+
+        cv2.imshow(CAM_WINDOW, frame)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
@@ -778,6 +804,20 @@ class Recorder:
             except Exception: pass
             self.vis = None
         self.dialog.shutdown()
+
+    def _mannequin_image(self, height: int) -> np.ndarray | None:
+        """Grab the offscreen Open3D render as a BGR image scaled to `height`,
+        so it can sit next to the camera view in the same window."""
+        try:
+            buf = self.vis.capture_screen_float_buffer(do_render=True)
+        except Exception:
+            return None
+        img = np.asarray(buf)
+        if img.size == 0:
+            return None
+        img = cv2.cvtColor((img * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+        width = max(1, int(img.shape[1] * height / img.shape[0]))
+        return cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
 
     def _draw_overlay(self, frame: np.ndarray, now: float) -> None:
         color = {

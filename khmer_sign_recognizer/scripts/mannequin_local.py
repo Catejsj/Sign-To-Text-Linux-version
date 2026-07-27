@@ -31,12 +31,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
+
+# Open3D renders through GLFW, and GLFW's Wayland path cannot initialize GLEW
+# here — create_window() just returns False and the mannequin never appears.
+# Steering GLFW to X11 (XWayland) fixes it. GLFW reads the environment when the
+# window is created, so this only has to run before the first create_window();
+# doing it at import time is simply the easiest place to guarantee that.
+if sys.platform.startswith("linux") and os.environ.get("WAYLAND_DISPLAY"):
+    os.environ.pop("WAYLAND_DISPLAY", None)
+    os.environ["XDG_SESSION_TYPE"] = "x11"
+    os.environ.setdefault("DISPLAY", ":0")
+
+import open3d as o3d  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

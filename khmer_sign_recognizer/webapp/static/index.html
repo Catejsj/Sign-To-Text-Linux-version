@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignLink Control Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Load fonts non-render-blocking: the page paints immediately with system
+       fonts and upgrades when the web fonts arrive, so it never stalls (e.g.
+       offline). media="print" -> swap to "all" on load. -->
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Khmer:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap">
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Khmer:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+  </noscript>
+  <style>
+    :root {
+      --bg: #F8F9FA;
+      --surface: #FFFFFF;
+      --surface-hover: #F1F3F4;
+      --text: #1F1F1F;
+      --text-secondary: #5F6368;
+      --border: #E0E2E5;
+      --border-focus: #0B57D0;
+      --primary: #0B57D0;
+      --primary-hover: #0842A0;
+      --primary-alpha: rgba(11, 87, 208, 0.08);
+      --danger: #B3261D;
+      --danger-hover: #8C1D18;
+      --danger-alpha: rgba(179, 38, 29, 0.08);
+      --success: #146C2E;
+      --warning: #B36B00;
+      --radius: 14px;
+      --radius-sm: 8px;
+      --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.04), 0 2px 4px -2px rgba(0,0,0,0.04);
+      --font-sans: 'Inter', 'Noto Sans Khmer', system-ui, sans-serif;
+      --font-display: 'Plus Jakarta Sans', 'Noto Sans Khmer', var(--font-sans);
+    }
+    [data-theme="dark"] {
+      --bg: #131314;
+      --surface: #1E1F20;
+      --surface-hover: #28292A;
+      --text: #E3E3E3;
+      --text-secondary: #C4C7C5;
+      --border: #444746;
+      --border-focus: #A8C7FA;
+      --primary: #A8C7FA;
+      --primary-hover: #7CB0FC;
+      --primary-alpha: rgba(168, 199, 250, 0.08);
+      --danger: #F2B8B5;
+      --danger-hover: #F9DEDC;
+      --danger-alpha: rgba(242, 184, 181, 0.08);
+      --success: #6DD58C;
+      --warning: #F29900;
+      --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.3);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans); background-color: var(--bg); color: var(--text);
+      transition: background-color 0.3s ease, color 0.3s ease; min-height: 100vh;
+      line-height: 1.5; -webkit-font-smoothing: antialiased;
+    }
+    h1,h2,h3,h4,h5,h6 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.01em; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    .material-symbols-rounded { user-select: none; }
+
+    .topbar {
+      height: 64px; padding: 0 32px; background-color: var(--surface);
+      border-bottom: 1px solid var(--border); display: flex; align-items: center;
+      justify-content: space-between; position: sticky; top: 0; z-index: 20;
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    .topbar-brand {
+      font-family: var(--font-display); font-size: 16px; font-weight: 600;
+      color: var(--text); display: flex; align-items: center; gap: 8px;
+    }
+    .segmented-toggle {
+      display: flex; background-color: var(--bg); border-radius: var(--radius-sm);
+      padding: 4px; border: 1px solid var(--border);
+      transition: background-color 0.3s ease, border-color 0.3s ease;
+    }
+    .segmented-toggle button {
+      border: none; background: transparent; padding: 6px 24px;
+      border-radius: calc(var(--radius-sm) - 2px); color: var(--text-secondary);
+      font-weight: 500; font-size: 14px; font-family: var(--font-sans); cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .segmented-toggle button:hover:not(.active):not(:disabled) { color: var(--text); }
+    .segmented-toggle button.active { background-color: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+    .segmented-toggle button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .topbar-actions { display: flex; align-items: center; gap: 16px; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      background-color: var(--primary); color: var(--surface); border: 1px solid transparent;
+      border-radius: var(--radius-sm); padding: 8px 16px; font-size: 14px; font-weight: 500;
+      font-family: var(--font-sans); cursor: pointer; transition: all 0.2s ease; white-space: nowrap;
+    }
+    [data-theme="dark"] .btn { color: var(--bg); }
+    .btn:hover:not(:disabled) { background-color: var(--primary-hover); }
+    .btn-secondary { background-color: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover:not(:disabled) { background-color: var(--surface-hover); border-color: var(--border-focus); }
+    .btn-danger { background-color: var(--danger-alpha); color: var(--danger); }
+    .btn-danger:hover:not(:disabled) { background-color: var(--danger); color: var(--surface); }
+    /* In dark mode `[data-theme] .btn` (color:var(--bg)) would otherwise win over
+       the variants by specificity and paint their text near-black. Re-assert. */
+    [data-theme="dark"] .btn-secondary { color: var(--text); }
+    [data-theme="dark"] .btn-danger { color: var(--danger); }
+    [data-theme="dark"] .btn-danger:hover:not(:disabled) { color: var(--bg); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .icon-btn {
+      background: transparent; border: none; color: var(--text-secondary);
+      width: 40px; height: 40px; border-radius: 50%; display: inline-flex;
+      align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease;
+    }
+    .icon-btn:hover { background-color: var(--surface-hover); color: var(--text); }
+    .icon-btn.rotate span { transition: transform 0.3s ease; }
+    .icon-btn.open span { transform: rotate(180deg); }
+
+    input[type="text"], select {
+      width: 100%; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background-color: var(--surface); color: var(--text); font-family: var(--font-sans);
+      font-size: 14px; outline: none; transition: all 0.2s ease;
+    }
+    input[type="text"]:focus, select:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--primary-alpha); }
+    input::placeholder { color: var(--text-secondary); opacity: 0.7; }
+    input:disabled, select:disabled { opacity: 0.6; cursor: not-allowed; background-color: var(--bg); }
+
+    .layout-main {
+      display: grid; grid-template-columns: 300px 1fr; gap: 32px; padding: 40px 32px;
+      max-width: 1280px; margin: 0 auto; align-items: start;
+    }
+    .sidebar { display: flex; flex-direction: column; gap: 24px; }
+    .content-area { display: flex; flex-direction: column; gap: 24px; }
+    .card {
+      background-color: var(--surface); border-radius: var(--radius); padding: 24px;
+      box-shadow: var(--shadow-md); border: 1px solid var(--border);
+      transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card-header {
+      font-family: var(--font-display); font-size: 15px; font-weight: 600; margin-bottom: 20px;
+      color: var(--text); display: flex; align-items: center; justify-content: space-between;
+    }
+    .input-group { display: flex; gap: 8px; margin-top: 12px; }
+
+    .slider-group { margin-bottom: 24px; }
+    .slider-group:last-child { margin-bottom: 0; }
+    .slider-group.disabled { opacity: 0.45; pointer-events: none; }
+    .slider-header { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; margin-bottom: 12px; color: var(--text-secondary); }
+    .slider-val { font-weight: 600; color: var(--text); }
+    input[type="range"] {
+      -webkit-appearance: none; width: 100%; height: 4px; background: var(--border);
+      border-radius: 2px; outline: none; cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+      background: var(--primary); cursor: pointer; border: 2px solid var(--surface);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.1s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    input[type="range"]::-moz-range-thumb {
+      width: 16px; height: 16px; border-radius: 50%; background: var(--primary); cursor: pointer;
+      border: 2px solid var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.1s ease;
+    }
+
+    /* full-width Live view segmented control */
+    .view-toggle { width: 100%; }
+    .view-toggle button { flex: 1; padding: 7px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+    .view-toggle button .material-symbols-rounded { font-size: 18px; }
+
+    .status-card { display: flex; justify-content: space-between; align-items: center; padding: 24px 32px; flex-wrap: wrap; gap: 16px; }
+    .status-info { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; }
+    .status-block { display: flex; flex-direction: column; gap: 6px; }
+    .status-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+    .status-value { font-size: 24px; font-weight: 600; font-family: var(--font-display); color: var(--text); letter-spacing: -0.02em; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; display: inline-block; }
+    .badge-idle { background-color: var(--border); color: var(--text); }
+    .badge-countdown { background-color: var(--warning); color: #fff; }
+    .badge-recording { background-color: var(--danger); color: #fff; }
+
+    .labels-header-area { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; gap: 16px; flex-wrap: wrap; }
+    .labels-actions { display: flex; gap: 12px; }
+    .label-list { display: flex; flex-direction: column; gap: 8px; }
+    .label-item { border: 1px solid var(--border); border-radius: var(--radius-sm); background-color: var(--bg); overflow: hidden; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+    .label-item:hover { border-color: var(--border-focus); box-shadow: var(--shadow-sm); }
+    .label-row { display: flex; align-items: center; padding: 14px 20px; gap: 16px; }
+    .label-text-col { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .label-primary { font-size: 15px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .label-slug { font-size: 12px; color: var(--text-secondary); font-family: monospace; }
+    .chip { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background-color: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
+    .chip.real { color: var(--primary); border-color: var(--border-focus); }
+    .chip.synth { color: var(--success); }
+
+    .takes-panel { display: none; border-top: 1px solid var(--border); background-color: var(--surface); padding: 8px 20px; }
+    .takes-panel.open { display: block; }
+    .take-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); }
+    .take-row:last-child { border-bottom: none; }
+    .take-row code { font-family: monospace; color: var(--text); }
+    .panel-actions { display: flex; gap: 10px; padding: 12px 0 6px; border-top: 1px solid var(--border); margin-top: 4px; }
+    .btn-mini { padding: 6px 12px; font-size: 13px; }
+
+    #mode-recognize { display: none; padding: 80px 24px; text-align: center; }
+    .recognize-container { max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; align-items: center; padding: 40px; }
+    .info-note { font-size: 13px; color: var(--text-secondary); background-color: var(--primary-alpha); padding: 14px 16px; border-radius: var(--radius-sm); line-height: 1.5; display: flex; align-items: flex-start; gap: 10px; }
+
+    #toast-container { position: fixed; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 12px; z-index: 9999; }
+    .toast { padding: 14px 20px; border-radius: var(--radius-sm); color: #fff; font-size: 14px; font-weight: 500; box-shadow: var(--shadow-md); animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; align-items: center; gap: 10px; transition: opacity .3s ease, transform .3s ease; }
+    .toast-success { background-color: var(--success); }
+    .toast-error { background-color: var(--danger); }
+    [data-theme="dark"] .toast { color: var(--bg); }
+    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="material-symbols-rounded" style="color: var(--primary);">sign_language</span>
+      SignLink Control Center
+    </div>
+    <div class="segmented-toggle" id="mode-toggle">
+      <button data-mode="record" class="active">Record</button>
+      <button data-mode="recognize">Recognize</button>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="theme-toggle" title="Toggle theme">
+        <span class="material-symbols-rounded" id="theme-icon">light_mode</span>
+      </button>
+      <button class="btn btn-secondary" id="quit-btn">Quit</button>
+    </div>
+  </header>
+
+  <!-- MODE 1: RECORD -->
+  <div id="mode-record" class="layout-main">
+    <aside class="sidebar">
+      <div class="card">
+        <div class="card-header">Language</div>
+        <select id="lang-select">
+          <option value="" disabled selected>Select language</option>
+        </select>
+        <div class="input-group">
+          <input type="text" id="new-lang-input" placeholder="New language name">
+          <button class="btn btn-secondary" id="create-lang-btn">Create</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Signer Tag</div>
+        <input type="text" id="signer-input" placeholder="e.g. piseth">
+      </div>
+
+      <div class="card">
+        <div class="card-header">Configuration</div>
+
+        <div class="slider-group">
+          <div class="slider-header"><span>Live view</span></div>
+          <div class="segmented-toggle view-toggle" id="view-toggle">
+            <button data-view="both" class="active"><span class="material-symbols-rounded">splitscreen</span>Both</button>
+            <button data-view="camera"><span class="material-symbols-rounded">videocam</span>Camera</button>
+            <button data-view="mannequin"><span class="material-symbols-rounded">accessibility_new</span>Model</button>
+          </div>
+        </div>
+
+        <div class="slider-group" id="mannequin-group">
+          <div class="slider-header"><span>Mannequins</span><span class="slider-val tabular-nums" id="val-mannequin">1</span></div>
+          <input type="range" id="slide-mannequin" min="0" max="4" step="1" value="1">
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header"><span>Synthetic per take</span><span class="slider-val tabular-nums" id="val-synthetic">0</span></div>
+          <input type="range" id="slide-synthetic" min="0" max="10" step="1" value="0">
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header"><span>Duration (sec)</span><span class="slider-val tabular-nums" id="val-duration">3.0</span></div>
+          <input type="range" id="slide-duration" min="0.5" max="8" step="0.5" value="3.0">
+        </div>
+      </div>
+
+      <div class="info-note">
+        <span class="material-symbols-rounded" style="font-size: 20px; color: var(--primary);">info</span>
+        <span>The live camera &amp; mannequin run in a separate desktop window. Use “Live view” to show one or both.</span>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <div class="card status-card">
+        <div class="status-info">
+          <div class="status-block">
+            <span class="status-label">Session State</span>
+            <div><span class="badge badge-idle" id="badge-state">IDLE</span></div>
+          </div>
+          <div class="status-block">
+            <span class="status-label">Current Label</span>
+            <span class="status-value" id="status-label">--</span>
+          </div>
+          <div class="status-block">
+            <span class="status-label">Saved this session</span>
+            <span class="status-value tabular-nums" id="status-saved">0</span>
+          </div>
+          <div class="status-block">
+            <span class="status-label">Remaining</span>
+            <span class="status-value tabular-nums"><span id="status-remaining">0.0</span>s</span>
+          </div>
+        </div>
+        <button class="btn btn-danger" id="stop-btn">
+          <span class="material-symbols-rounded">stop_circle</span> Stop Take
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="labels-header-area">
+          <div style="flex: 1; max-width: 340px;">
+            <div class="card-header" style="margin-bottom: 12px;">Labels</div>
+            <div class="input-group" style="margin-top: 0;">
+              <input type="text" id="new-label-input" placeholder="Add new label…">
+              <button class="btn btn-secondary" id="add-label-btn">Add</button>
+            </div>
+          </div>
+          <div class="labels-actions">
+            <button class="btn btn-secondary" id="clear-synth-btn">Clear synthetic</button>
+            <button class="btn btn-danger" id="delete-all-btn">Delete ALL takes</button>
+          </div>
+        </div>
+        <div class="label-list" id="labels-container">
+          <div style="text-align: center; color: var(--text-secondary); padding: 40px 20px;">Select a language to view labels.</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- MODE 2: RECOGNIZE -->
+  <div id="mode-recognize">
+    <div class="card recognize-container">
+      <span class="badge badge-idle">Phase 2</span>
+      <h2>Recognize Mode</h2>
+      <p style="color: var(--text-secondary);">Pick a trained model and language, then translate signs live.</p>
+      <select disabled style="margin-top: 8px;"><option>Select model</option></select>
+      <select disabled><option>Select language</option></select>
+      <button class="btn" style="width: 100%;" disabled>
+        <span class="material-symbols-rounded">play_arrow</span> Start Translation
+      </button>
+      <div class="info-note" style="width: 100%; background: var(--bg); border: 1px dashed var(--border);">
+        <span class="material-symbols-rounded" style="color: var(--text-secondary);">construction</span>
+        <span>Coming later. No trained model is saved yet — this mode is isolated from recording and will be built in Phase 2.</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const root = document.documentElement;
+
+    /* ── THEME ── */
+    const themeIcon = $('theme-icon');
+    const setTheme = (t) => { root.setAttribute('data-theme', t); localStorage.setItem('signlink_theme', t); themeIcon.textContent = t === 'dark' ? 'dark_mode' : 'light_mode'; };
+    (() => { const s = localStorage.getItem('signlink_theme'); if (s) setTheme(s); else setTheme(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); })();
+    $('theme-toggle').addEventListener('click', () => setTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+
+    /* ── utils ── */
+    const esc = (u) => u == null ? '' : String(u).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
+    let toastT;
+    const toast = (msg, isErr = false) => {
+      const c = $('toast-container'); const t = document.createElement('div');
+      t.className = `toast ${isErr ? 'toast-error' : 'toast-success'}`;
+      t.innerHTML = `<span class="material-symbols-rounded">${isErr ? 'error' : 'check_circle'}</span>${esc(msg)}`;
+      c.appendChild(t);
+      setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(120%)'; setTimeout(() => t.remove(), 300); }, 3500);
+    };
+    const api = async (path, method = 'GET', body = null) => {
+      const opt = { method, headers: {} };
+      if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+      const res = await fetch(path, opt);
+      let data = {}; try { data = JSON.parse(await res.text()); } catch (_) {}
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      return data;
+    };
+    const apiToast = async (...a) => { try { return await api(...a); } catch (e) { toast(e.message, true); throw e; } };
+
+    /* ── state ── */
+    let currentLang = '';
+    let currentSigner = 'me';
+    let currentView = 'both';
+    let hasOpen3d = true;
+    let initialized = false;
+    let lastSavedCount = 0;
+    const openSlugs = new Set();      // expanded take panels
+    const labelTextBySlug = {};       // slug -> display text (avoids inline-string escaping bugs)
+
+    /* ── mode switch ── */
+    $('mode-toggle').addEventListener('click', async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      const m = b.dataset.mode;
+      document.querySelectorAll('#mode-toggle button').forEach(x => x.classList.toggle('active', x === b));
+      $('mode-record').style.display = m === 'record' ? 'grid' : 'none';
+      $('mode-recognize').style.display = m === 'recognize' ? 'block' : 'none';
+      try { await api('/api/mode', 'POST', { mode: m }); } catch (_) {}
+      toast(m === 'record' ? 'Record mode — camera on' : 'Recognize mode — camera released');
+    });
+
+    /* ── languages ── */
+    const rebuildLangSelect = (langs) => {
+      const sel = $('lang-select');
+      const names = langs.map(l => l.name);
+      const existing = Array.from(sel.options).filter(o => !o.disabled).map(o => o.value);
+      if (JSON.stringify(names) === JSON.stringify(existing)) return;
+      const keep = sel.value || currentLang;
+      sel.innerHTML = '<option value="" disabled>Select language</option>';
+      langs.forEach(l => {
+        const o = document.createElement('option');
+        o.value = l.name; o.textContent = `${l.name} · ${l.total_takes} takes`;
+        sel.appendChild(o);
+      });
+      if (names.includes(keep)) sel.value = keep;
+    };
+    $('lang-select').addEventListener('change', (e) => { currentLang = e.target.value; loadLabels(); });
+    $('create-lang-btn').addEventListener('click', async () => {
+      const i = $('new-lang-input'); const name = i.value.trim(); if (!name) return;
+      await apiToast('/api/languages', 'POST', { name });
+      i.value = ''; currentLang = name; toast(`Created “${name}”`);
+      await refreshLangs(); $('lang-select').value = name; loadLabels();
+    });
+
+    /* ── labels ── */
+    async function loadLabels() {
+      const box = $('labels-container');
+      if (!currentLang) { box.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px 20px;">Select a language to view labels.</div>'; return; }
+      let data;
+      try { data = await api('/api/labels?lang=' + encodeURIComponent(currentLang)); }
+      catch (e) { box.innerHTML = `<div style="text-align:center;color:var(--text-secondary);padding:40px 20px;">${esc(e.message)}</div>`; return; }
+      const labels = data.labels || [];
+      for (const k in labelTextBySlug) delete labelTextBySlug[k];
+      labels.forEach(l => labelTextBySlug[l.slug] = l.text);
+      if (!labels.length) { box.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px 20px;">No labels yet — add one above.</div>'; return; }
+      box.innerHTML = labels.map(l => {
+        const open = openSlugs.has(l.slug);
+        const takes = (l.takes || []).length
+          ? l.takes.map(t => `<div class="take-row">
+              <span><code>${esc(t.signer)} · #${String(t.variant).padStart(4,'0')}</code> · ${esc((t.views||[]).join(' + '))}</span>
+              <button class="icon-btn" style="width:32px;height:32px;" data-action="del-take"
+                data-slug="${esc(l.slug)}" data-signer="${esc(t.signer)}" data-variant="${esc(t.variant)}" title="Delete take">
+                <span class="material-symbols-rounded" style="font-size:18px;">delete</span></button></div>`).join('')
+          : '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0;">No real takes recorded.</div>';
+        return `<div class="label-item">
+          <div class="label-row">
+            <div class="label-text-col">
+              <span class="label-primary">${esc(l.text)}</span>
+              <span class="label-slug">${esc(l.slug)}</span>
+            </div>
+            <div class="chip real tabular-nums">${l.real||0} real</div>
+            <div class="chip synth tabular-nums">${l.synthetic||0} synth</div>
+            <button class="btn btn-secondary" data-action="record" data-slug="${esc(l.slug)}">
+              <span class="material-symbols-rounded" style="font-size:18px;">fiber_manual_record</span> Record</button>
+            <button class="icon-btn rotate ${open?'open':''}" data-action="toggle" data-slug="${esc(l.slug)}" title="Show takes">
+              <span class="material-symbols-rounded">expand_more</span></button>
+            <button class="icon-btn" data-action="del-all" data-slug="${esc(l.slug)}" title="Delete all takes (keep the label)">
+              <span class="material-symbols-rounded">delete_sweep</span></button>
+          </div>
+          <div class="takes-panel ${open?'open':''}">
+            ${takes}
+            <div class="panel-actions">
+              <button class="btn btn-secondary btn-mini" data-action="clear-synth-label" data-slug="${esc(l.slug)}">
+                <span class="material-symbols-rounded" style="font-size:16px;">auto_fix_off</span> Clear synthetic (${l.synthetic||0})</button>
+              <button class="btn btn-danger btn-mini" data-action="del-label" data-slug="${esc(l.slug)}">
+                <span class="material-symbols-rounded" style="font-size:16px;">delete_forever</span> Delete label</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // delegated actions on the label list
+    $('labels-container').addEventListener('click', async (e) => {
+      const b = e.target.closest('button[data-action]'); if (!b) return;
+      const { action, slug, signer, variant } = b.dataset;
+      try {
+        if (action === 'record') {
+          if (!currentSigner) return toast('Enter a signer tag first', true);
+          await apiToast('/api/record', 'POST', { label: labelTextBySlug[slug] || slug, lang: currentLang, signer: currentSigner });
+          toast(`Recording “${labelTextBySlug[slug] || slug}”…`);
+        } else if (action === 'toggle') {
+          openSlugs.has(slug) ? openSlugs.delete(slug) : openSlugs.add(slug);
+          loadLabels();
+        } else if (action === 'del-take') {
+          if (!confirm(`Delete take ${signer} #${variant}?`)) return;
+          await apiToast('/api/takes', 'DELETE', { lang: currentLang, slug, signer, variant: Number(variant) });
+          toast('Take deleted'); loadLabels(); refreshLangs();
+        } else if (action === 'del-all') {
+          if (!confirm('Delete ALL takes for this label? The label itself stays.')) return;
+          const r = await apiToast('/api/delete_all', 'POST', { lang: currentLang, slug });
+          toast(`Deleted ${r.removed} files`); loadLabels(); refreshLangs();
+        } else if (action === 'clear-synth-label') {
+          if (!confirm('Clear synthetic takes for this label?')) return;
+          const r = await apiToast('/api/synthetic/clear', 'POST', { lang: currentLang, slug });
+          toast(`Removed ${r.removed} synthetic files`); loadLabels(); refreshLangs();
+        } else if (action === 'del-label') {
+          if (!confirm('Delete this label entirely — its entry and every take?')) return;
+          await apiToast('/api/labels', 'DELETE', { lang: currentLang, slug });
+          openSlugs.delete(slug);
+          toast('Label deleted'); loadLabels(); refreshLangs();
+        }
+      } catch (_) {}
+    });
+
+    $('add-label-btn').addEventListener('click', async () => {
+      const i = $('new-label-input'); const text = i.value.trim();
+      if (!currentLang) return toast('Select a language first', true);
+      if (!text) return;
+      await apiToast('/api/labels', 'POST', { lang: currentLang, text });
+      i.value = ''; toast(`Added “${text}”`); loadLabels(); refreshLangs();
+    });
+    $('new-label-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('add-label-btn').click(); });
+    $('new-lang-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('create-lang-btn').click(); });
+
+    $('clear-synth-btn').addEventListener('click', async () => {
+      if (!currentLang || !confirm(`Clear ALL synthetic takes in “${currentLang}”?`)) return;
+      const r = await apiToast('/api/synthetic/clear', 'POST', { lang: currentLang });
+      toast(`Removed ${r.removed} synthetic files`); loadLabels(); refreshLangs();
+    });
+    $('delete-all-btn').addEventListener('click', async () => {
+      if (!currentLang || !confirm(`Delete EVERY take in “${currentLang}”? Labels are kept.`)) return;
+      const r = await apiToast('/api/delete_all', 'POST', { lang: currentLang });
+      toast(`Deleted ${r.removed} files`); loadLabels(); refreshLangs();
+    });
+    $('stop-btn').addEventListener('click', () => api('/api/stop', 'POST').catch(() => {}));
+
+    /* ── live config ── */
+    const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
+    const pushConfig = debounce(async () => {
+      try {
+        await api('/api/config', 'POST', {
+          mannequin: Number($('slide-mannequin').value),
+          synthetic: Number($('slide-synthetic').value),
+          duration: Number($('slide-duration').value),
+          view: currentView,
+          signer: currentSigner || 'me',
+          lang: currentLang,
+        });
+      } catch (e) { toast(e.message, true); }
+    }, 200);
+
+    $('slide-mannequin').addEventListener('input', e => { $('val-mannequin').textContent = e.target.value; pushConfig(); });
+    $('slide-synthetic').addEventListener('input', e => { $('val-synthetic').textContent = e.target.value; pushConfig(); });
+    $('slide-duration').addEventListener('input', e => { $('val-duration').textContent = Number(e.target.value).toFixed(1); pushConfig(); });
+    $('signer-input').addEventListener('input', e => { currentSigner = e.target.value.trim(); pushConfig(); });
+
+    const applyViewUI = () => {
+      document.querySelectorAll('#view-toggle button').forEach(x => x.classList.toggle('active', x.dataset.view === currentView));
+      // mannequin count is irrelevant in camera-only view
+      $('mannequin-group').classList.toggle('disabled', currentView === 'camera' || !hasOpen3d);
+    };
+    $('view-toggle').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.disabled) return;
+      currentView = b.dataset.view; applyViewUI(); pushConfig();
+    });
+
+    /* ── polling ── */
+    const poll = async () => {
+      let data; try { data = await api('/api/state'); } catch (_) { return; }
+      const e = data.engine || {};
+      const st = e.state || 'IDLE';
+      const badge = $('badge-state'); badge.textContent = st; badge.className = 'badge badge-' + st.toLowerCase();
+      // Stop only does something mid-take; disable it otherwise so it's not dead weight.
+      $('stop-btn').disabled = !(st === 'RECORDING' || st === 'COUNTDOWN');
+      $('status-label').textContent = e.current_label || '--';
+      $('status-saved').textContent = e.session_take_count || 0;
+      $('status-remaining').textContent = Number(e.remaining || 0).toFixed(1);
+      rebuildLangSelect(data.languages || []);
+
+      if (!initialized) {
+        initialized = true;
+        hasOpen3d = !!data.has_open3d;
+        const c = e.config || {};
+        $('slide-mannequin').value = c.mannequin ?? 1; $('val-mannequin').textContent = c.mannequin ?? 1;
+        $('slide-synthetic').value = c.synthetic ?? 0; $('val-synthetic').textContent = c.synthetic ?? 0;
+        $('slide-duration').value = c.duration ?? 3; $('val-duration').textContent = Number(c.duration ?? 3).toFixed(1);
+        currentView = c.view || 'both';
+        currentSigner = e.signer || 'me'; $('signer-input').value = currentSigner;
+        if (!hasOpen3d) {
+          $('slide-mannequin').disabled = true;
+          document.querySelector('#view-toggle button[data-view="both"]').disabled = true;
+          document.querySelector('#view-toggle button[data-view="mannequin"]').disabled = true;
+          if (currentView !== 'camera') currentView = 'camera';
+        }
+        applyViewUI();
+        if (e.language) { currentLang = e.language; $('lang-select').value = e.language; }
+        lastSavedCount = e.session_take_count || 0;
+        loadLabels();
+      }
+      // a take just landed -> refresh counts
+      if ((e.session_take_count || 0) > lastSavedCount) { lastSavedCount = e.session_take_count; loadLabels(); refreshLangs(); }
+    };
+    const refreshLangs = async () => { try { rebuildLangSelect(await api('/api/languages')); } catch (_) {} };
+
+    $('quit-btn').addEventListener('click', async () => {
+      if (!confirm('Stop the SignLink server?')) return;
+      try { await api('/api/quit', 'POST'); } catch (_) {}
+      toast('Server stopping — you can close this tab.');
+    });
+
+    setInterval(poll, 800);
+    poll();
+  </script>
+</body>
+</html>

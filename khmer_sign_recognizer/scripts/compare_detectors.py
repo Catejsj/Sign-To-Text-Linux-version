@@ -37,6 +37,7 @@ import argparse
 import csv
 import json
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -44,6 +45,14 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# DirectShow is Windows-only; V4L2 is its Linux counterpart.
+if sys.platform == 'win32':
+    CAMERA_BACKEND = cv2.CAP_DSHOW
+elif sys.platform.startswith('linux'):
+    CAMERA_BACKEND = cv2.CAP_V4L2
+else:
+    CAMERA_BACKEND = cv2.CAP_ANY
 
 # joint label -> (RTMPose COCO-wholebody index, MediaPipe Pose index)
 JOINTS = {
@@ -143,6 +152,12 @@ def main() -> None:
         cam_id = args.camera
 
     print("Loading RTMPose Wholebody (GPU)...")
+    # Must happen before the first ONNX session, or onnxruntime drops to CPU
+    # without saying so.
+    sys.path.insert(0, str(ROOT))
+    from src.cuda_setup import preload_cuda_libs
+    preload_cuda_libs()
+
     from rtmlib import Wholebody
     wholebody = Wholebody(to_openpose=False, mode="balanced",
                           backend="onnxruntime", device="cuda")
@@ -156,7 +171,7 @@ def main() -> None:
                                   min_tracking_confidence=0.5)
     print("MediaPipe Pose ready")
 
-    cap = cv2.VideoCapture(cam_id, cv2.CAP_DSHOW)
+    cap = cv2.VideoCapture(cam_id, CAMERA_BACKEND)
     if not cap.isOpened():
         cap = cv2.VideoCapture(cam_id)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, W)

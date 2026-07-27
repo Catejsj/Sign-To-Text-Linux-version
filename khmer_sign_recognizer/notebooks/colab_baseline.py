@@ -64,23 +64,15 @@ SRC = '/content/drive/MyDrive/SignLink/data/sequences_v2/turkish'
 # training stay consistent. Set to None to keep each file's own language.
 FORCE_LANG = 'autsl'
 
-import shutil, json, zipfile
+import shutil, json
 from pathlib import Path
 
 DATA = Path('/content/Sign-to-Text/khmer_sign_recognizer/data/sequences_v2')
 DATA.mkdir(parents=True, exist_ok=True)
 
-# Unzip the AUTSL base (real Turkish signers — they carry the held-out
-# val/test split your teammates don't have). Expected next to the
-# recordings on Drive as autsl_base.zip.
-base_zip = Path(SRC) / 'autsl_base.zip'
-if base_zip.exists():
-    with zipfile.ZipFile(base_zip) as z:
-        z.extractall(DATA)
-    print('unzipped AUTSL base ->', DATA / 'autsl')
-else:
-    print('WARNING: no autsl_base.zip at', base_zip,
-          '\n  -> training will have NO test signers. Upload the base first.')
+# No AUTSL base needed. We test with leave-one-teammate-out (CELL 5):
+# train on everyone except one person, test on that person. So all we need
+# here is to pool the teammates' recordings.
 
 copied = skipped = 0
 by_signer: dict[str, int] = {}
@@ -124,11 +116,17 @@ get_ipython().system(f'python scripts/generate_synthetic.py --language {LANG} --
 # Pick ONE: lda | logreg | rf | svm | nb | tree | knn  (lda was best for us)
 ALGO = 'lda'
 
-print('=== RUN A: real only ===')
-get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang {LANG} --mode real')
+# Leave-one-teammate-out: hold each person out as the test set in turn,
+# training on the others. For each, compare real vs real+synthetic.
+# (Auto-detect the teammates from CELL 3's pooling.)
+TEAMMATES = sorted(by_signer)
 
-print('\n=== RUN B: real + synthetic ===')
-get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang {LANG} --mode both')
+for who in TEAMMATES:
+    print(f'\n########## HOLD OUT: {who} ##########')
+    print(f'--- real only ---')
+    get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang {LANG} --mode real --holdout {who}')
+    print(f'--- real + synthetic ---')
+    get_ipython().system(f'python scripts/run_baseline.py --algo {ALGO} --lang {LANG} --mode both --holdout {who}')
 
 # ============================================================================
 # CELL 6 — copy the shared results table back to Drive

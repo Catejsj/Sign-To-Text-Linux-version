@@ -1,0 +1,45 @@
+# Linux / CachyOS install set — use with a Python 3.11 venv.
+#
+# Why this file exists (and requirements.txt is not enough):
+#   mediapipe 0.10.14 and open3d publish no wheels past Python 3.12, but
+#   CachyOS ships Python 3.14 as the system interpreter. So the venv MUST be
+#   built with python3.11:  python3.11 -m venv venv
+#
+# Versions here mirror requirements-lock-windows.txt — the set that was known
+# good on Windows — so results stay comparable across the two machines.
+#
+# Install torch FIRST (see LINUX_REBUILD.md); its wheel bundles the CUDA
+# runtime, so no system CUDA toolkit is needed for PyTorch.
+
+# Computer Vision & Motion Capture
+opencv-python==4.13.0.92
+mediapipe==0.10.14
+rtmlib==0.0.15
+onnxruntime-gpu==1.24.4
+
+# Math & Data Processing
+# NOTE: opencv-python 4.13 requires numpy>=2, and the Windows lock ran
+# mediapipe 0.10.14 against numpy 2.4.4 fine. If mediapipe ever throws a numpy
+# ABI error on import, you cannot simply pin numpy<2 — you must ALSO drop
+# opencv to 4.10.0.84, which is the last release allowing numpy 1.x.
+numpy==2.4.4
+
+# Utilities
+python-json-logger==4.1.0
+
+# Unicode text rendering on the camera overlay (Khmer + any other language)
+pillow>=10.0
+
+# 3D mannequin rendering (scripts/mannequin_local.py)
+open3d==0.19.0
+
+# AI/ML — local inference
+torch
+
+# Classical-ML baselines (scripts/run_baseline.py) + parquet dataset import
+scikit-learn>=1.3
+pandas>=2.0
+pyarrow>=14.0
+
+# Web control panel (python -m webapp) — Werkzeug ships with Flask
+flask>=3.0

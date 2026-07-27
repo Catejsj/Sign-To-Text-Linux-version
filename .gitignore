@@ -1,0 +1,33 @@
+# Root .gitignore — complements khmer_sign_recognizer/.gitignore (which covers
+# the project's data, models, venv, and Python caches in detail).
+
+# Local Claude Code / agent settings and worktrees — machine-specific, not code.
+.claude/
+
+# Python virtual environments (any level, as a safety net)
+venv/
+venv_wsl/
+.venv/
+env/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Logs & temp
+*.log
+*.tmp
+*.bak
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~

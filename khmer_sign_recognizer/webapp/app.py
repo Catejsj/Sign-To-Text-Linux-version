@@ -20,7 +20,7 @@ from threading import Lock
 from flask import Flask, jsonify, request, send_from_directory
 
 from webapp import library
-from webapp.engine import RecorderEngine, HAS_OPEN3D
+from webapp.engine import RecorderEngine, HAS_OPEN3D, list_models
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -193,19 +193,32 @@ def create_app(state: AppState) -> Flask:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True, removed=n)
 
-    # ── recognize (Phase 2 stubs) ──
+    # ── recognize ──
     @app.get("/api/models")
     def api_models():
-        return jsonify(error="Recognition is coming in Phase 2.",
-                       models=[]), 501
+        return jsonify(models=list_models())
 
     @app.post("/api/recognize/start")
     def api_recognize_start():
-        return jsonify(error="Recognition is coming in Phase 2."), 501
+        if not _require_recognize():
+            return jsonify(error="switch to Recognize mode first"), 409
+        name = (request.json or {}).get("model")
+        if not name:
+            return jsonify(error="model required"), 400
+        try:
+            engine.start_recognition(name)
+        except (ValueError, OSError) as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True, model=name)
 
     @app.post("/api/recognize/stop")
     def api_recognize_stop():
-        return jsonify(error="Recognition is coming in Phase 2."), 501
+        engine.stop_recognition()
+        return jsonify(ok=True)
+
+    @app.get("/api/recognize/state")
+    def api_recognize_state():
+        return jsonify(engine.recognition_snapshot())
 
     @app.post("/api/quit")
     def api_quit():
@@ -217,6 +230,10 @@ def create_app(state: AppState) -> Flask:
     def _require_record() -> bool:
         with state.lock:
             return state.mode == "record"
+
+    def _require_recognize() -> bool:
+        with state.lock:
+            return state.mode == "recognize"
 
     def _wrong_mode():
         return jsonify(error="not in record mode"), 409

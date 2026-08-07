@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.v2.schema import SEQ_LEN, NUM_JOINTS, NUM_COORDS, save_pair
-from src.v2.normalize import fill_nans, resample_time, shoulder_normalize
+from src.v2.normalize import fill_nans, resample_time, shoulder_normalize, deroll
 
 
 # MediaPipe Holistic pose landmark indices that map to our 6 body slots.
@@ -184,7 +184,7 @@ def import_autsl(args: argparse.Namespace) -> None:
                 continue
 
             noisy = fill_nans(resample_time(raw, SEQ_LEN))
-            clean = shoulder_normalize(noisy)
+            clean = deroll(shoulder_normalize(noisy))
 
             sign_id = int(row.sign)
             slug = slugify_tr(id_to_tr[sign_id])

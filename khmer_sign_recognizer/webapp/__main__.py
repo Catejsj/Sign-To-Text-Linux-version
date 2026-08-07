@@ -38,7 +38,8 @@ def main() -> None:
     args = ap.parse_args()
 
     cfg = load_config(args.config)
-    engine = RecorderEngine(cfg, signer=args.signer, language=args.lang)
+    engine = RecorderEngine(cfg, signer=args.signer, language=args.lang,
+                            config_path=args.config)
     state = AppState(engine)
     app = create_app(state)
 
@@ -74,9 +75,12 @@ def _supervise(state: AppState, engine: RecorderEngine) -> None:
                     break
                 mode = state.mode
 
-            if mode == "record":
+            recognizing = mode == "recognize" and engine.recognizer is not None
+
+            if mode == "record" or recognizing:
                 if not engine.running:
-                    if engine.start():
+                    # Recognize mode wants the camera but no mannequin scene.
+                    if engine.start(mannequins=(mode == "record")):
                         warned_no_cam = False
                     else:
                         if not warned_no_cam:
@@ -84,11 +88,16 @@ def _supervise(state: AppState, engine: RecorderEngine) -> None:
                             warned_no_cam = True
                         time.sleep(1.0)
                         continue
-                engine.tick()
+                if mode == "record":
+                    engine.tick()
+                else:
+                    engine.tick_recognize()
                 if engine.quit_requested:
                     break
                 time.sleep(0.01)
-            else:  # recognize (or idle): the recorder must be torn down
+            else:
+                # Recognize mode with nothing loaded yet, or idle: release the
+                # camera so the other mode (and other apps) can have it.
                 if engine.running:
                     engine.stop()
                 time.sleep(0.05)

@@ -27,6 +27,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lang", default="autsl")
     ap.add_argument("--eval-on", default="val", choices=["val", "test"])
+    ap.add_argument("--split-random", type=float, default=None, metavar="FRAC",
+                    help="hold out this fraction of your own takes for eval "
+                         "(use when there is only one signer)")
+    ap.add_argument("--split-seed", type=int, default=0)
     ap.add_argument("--features", default="summary", choices=["summary", "flat"])
     ap.add_argument("--skip", default="gboost",
                     help="comma-separated algorithms to skip (default: gboost, "
@@ -37,14 +41,16 @@ def main() -> None:
     algos = [a for a in ALGOS if a not in skip]
 
     print(f"loading data (lang={args.lang}, features={args.features})...")
+    split_kw = dict(random_split=args.split_random, split_seed=args.split_seed)
     Xtr_real, ytr_real, _, l2i = load_split(
-        "train", args.lang, source_mode="real", feature_mode=args.features)
+        "train", args.lang, source_mode="real", feature_mode=args.features,
+        **split_kw)
     Xtr_both, ytr_both, _, _ = load_split(
         "train", args.lang, source_mode="both", feature_mode=args.features,
-        label_to_idx=l2i)
+        label_to_idx=l2i, **split_kw)
     Xev, yev, sev, _ = load_split(
         args.eval_on, args.lang, source_mode="real",
-        feature_mode=args.features, label_to_idx=l2i)
+        feature_mode=args.features, label_to_idx=l2i, **split_kw)
     n_classes = len(l2i)
     print(f"train(real)={len(ytr_real)}  train(both)={len(ytr_both)}  "
           f"eval={len(yev)}  classes={n_classes}\n")

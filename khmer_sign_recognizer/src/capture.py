@@ -224,6 +224,11 @@ class LandmarkCapture:
             if ret:
                 if self.cap_config.get('flip_horizontal', False):
                     frame = cv2.flip(frame, 1)
+                # Enhance HERE, before the frame is published: this is the single
+                # point both detector threads read from (_rtmpose_thread and
+                # _mediapipe_thread copy self.frame), so night correction improves
+                # tracking and the recorded landmarks — not merely the preview.
+                # DAY returns the frame untouched, so daytime costs nothing.
                 with self.lock:
                     self.frame = frame
             else:

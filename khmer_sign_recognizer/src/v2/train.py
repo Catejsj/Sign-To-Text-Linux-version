@@ -34,6 +34,11 @@ class TrainConfig:
     held_out_signer: str | None = None   # enables leave-one-signer-out if set
     flip_labels: list[str] | None = None
     model_type: str = "tcn"              # "tcn" (recommended) or "transformer"
+    # Which language folder to train on. None = ALL languages, which is almost
+    # never what you want once more than one language has been recorded.
+    language: str | None = None
+    # Also write a recognizer bundle so the web app's Recognize mode can load it.
+    save_bundle: bool = False
 
 
 def _eval(model, loader, device) -> tuple[float, float]:
@@ -57,9 +62,11 @@ def train(cfg: TrainConfig) -> dict:
     weights_out.parent.mkdir(parents=True, exist_ok=True)
     labels_out.parent.mkdir(parents=True, exist_ok=True)
 
-    samples = discover_samples(data_root)
+    samples = discover_samples(data_root, language=cfg.language)
     if not samples:
-        raise RuntimeError(f"no samples found under {data_root}")
+        raise RuntimeError(
+            f"no samples found under {data_root}"
+            + (f" for language={cfg.language!r}" if cfg.language else ""))
 
     label_to_idx = build_label_index(samples)
     labels_out.write_text(json.dumps(label_to_idx, indent=2, ensure_ascii=False))
@@ -136,5 +143,76 @@ def train(cfg: TrainConfig) -> dict:
             }, weights_out)
             print(f"  → saved best ({val_acc:.3f}) to {weights_out}")
 
+    if cfg.save_bundle:
+        # Reload the BEST checkpoint (the last epoch is not always the best) and
+        # write a recognizer bundle the web app can load.
+        from .recognizer import save_bundle as _save_bundle
+        best = torch.load(weights_out, map_location="cpu", weights_only=False)
+        model.load_state_dict(best["model_state"])
+        model.to("cpu").eval()
+
+        labels_text = {}
+        lab_path = data_root / (cfg.language or "") / "labels.json"
+        if lab_path.exists():
+            try:
+                labels_text = json.loads(lab_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                pass
+
+        path = _save_bundle(
+            model, label_to_idx,
+            language=cfg.language or "all", algo=cfg.model_type,
+            feature_mode="sequence",        # the TCN eats the raw (60,144) clip
+            labels_text=labels_text,
+            meta={"accuracy": round(float(best_acc), 4),
+                  "epochs": cfg.epochs, "held_out": cfg.held_out_signer,
+                  "kind": "torch", "model_type": cfg.model_type,
+                  "num_classes": len(label_to_idx)},
+        )
+        print(f"saved recognizer bundle -> {path}")
+
     return {"best_val_acc": best_acc, "history": history,
             "label_to_idx": label_to_idx}
+
+
+def main() -> None:
+    """CLI so the deep models fit the same workflow as the baselines."""
+    import argparse
+
+    root = Path(__file__).resolve().parents[2]
+    ap = argparse.ArgumentParser(
+        description="Train the TCN / Transformer sign recognizer.")
+    ap.add_argument("--lang", default=None,
+                    help="language folder to train on (default: ALL languages)")
+    ap.add_argument("--model", default="tcn", choices=["tcn", "transformer"],
+                    help="tcn is the better choice on small datasets")
+    ap.add_argument("--epochs", type=int, default=100)
+    ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--val-frac", type=float, default=0.15,
+                    help="random validation fraction (ignored with --holdout)")
+    ap.add_argument("--holdout", default=None,
+                    help="leave-one-signer-out: hold this signer out for eval")
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--data-root", default=str(root / "data" / "sequences_v2"))
+    ap.add_argument("--save", action="store_true",
+                    help="also write a bundle for the web app's Recognize mode")
+    a = ap.parse_args()
+
+    tag = f"{a.lang or 'all'}_{a.model}"
+    cfg = TrainConfig(
+        data_root=a.data_root,
+        weights_out=str(root / "models" / "weights_v2" / f"{tag}.pt"),
+        labels_out=str(root / "models" / "weights_v2" / f"{tag}_labels.json"),
+        batch_size=a.batch_size, epochs=a.epochs, lr=a.lr,
+        val_frac=a.val_frac, seed=a.seed, device=a.device,
+        held_out_signer=a.holdout, model_type=a.model,
+        language=a.lang, save_bundle=a.save,
+    )
+    out = train(cfg)
+    print(f"\nbest val acc: {out['best_val_acc']:.3f}")
+
+
+if __name__ == "__main__":
+    main()

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,10 +59,29 @@ def _write_labels(language: str, labels: dict[str, str]) -> None:
     p = _labels_path(language)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
+    _invalidate()
 
 
-def list_languages() -> list[dict]:
-    """Every language folder with its label + total-take counts."""
+# list_languages() walks EVERY language folder, which on a real dataset means
+# tens of thousands of files (measured: 219 ms). The web UI polls /api/state
+# every 800 ms, so uncached that burns ~27% of a core continuously — and because
+# of the GIL it steals time from the camera thread, which made recording stutter
+# and eventually hang once the folders grew. Cache it, and invalidate whenever we
+# write. Counts are still exact: every mutation in this module calls _invalidate.
+_LANG_CACHE: dict = {"at": 0.0, "value": None}
+_LANG_TTL = 5.0
+
+
+def _invalidate() -> None:
+    _LANG_CACHE["value"] = None
+
+
+def list_languages(force: bool = False) -> list[dict]:
+    """Every language folder with its label + total-take counts (cached)."""
+    now = time.time()
+    if (not force and _LANG_CACHE["value"] is not None
+            and now - _LANG_CACHE["at"] < _LANG_TTL):
+        return _LANG_CACHE["value"]
     if not SEQUENCES.exists():
         return []
     out = []
@@ -72,6 +92,7 @@ def list_languages() -> list[dict]:
             "labels": len(scan["labels"]),
             "total_takes": sum(l["total"] for l in scan["labels"]),
         })
+    _LANG_CACHE.update(at=now, value=out)
     return out
 
 
@@ -86,6 +107,7 @@ def create_language(name: str) -> None:
         raise LibraryError(f"language '{name}' already exists")
     d.mkdir(parents=True)
     _write_labels(name, {})
+    _invalidate()
 
 
 def delete_language(name: str) -> None:
@@ -93,6 +115,7 @@ def delete_language(name: str) -> None:
     if not d.exists():
         raise LibraryError(f"language '{name}' does not exist")
     shutil.rmtree(d)
+    _invalidate()
 
 
 # ── label helpers ────────────────────────────────────────────────────
@@ -127,6 +150,7 @@ def add_label(language: str, text: str) -> str:
     labels[slug] = text
     _write_labels(language, labels)
     (_lang_dir(language) / slug).mkdir(parents=True, exist_ok=True)
+    _invalidate()
     return slug
 
 
@@ -146,6 +170,7 @@ def delete_label(language: str, slug: str) -> None:
         _write_labels(language, labels)
     if folder.exists():
         shutil.rmtree(folder)
+    _invalidate()
 
 
 # ── scanning (the single source of truth) ────────────────────────────
@@ -236,6 +261,7 @@ def delete_take(language: str, slug: str, signer: str, variant: int,
     if removed == 0:
         raise LibraryError(
             f"no take {signer} #{variant} ({source}) in {language}/{slug}")
+    _invalidate()
     return removed
 
 
@@ -255,6 +281,7 @@ def delete_all(language: str, slug: str | None = None) -> int:
         for f in list(d.glob("*.npy")) + list(d.glob("*.json")):
             f.unlink()
             n += 1
+    _invalidate()
     return n
 
 
@@ -272,4 +299,5 @@ def clear_synthetic(language: str, slug: str | None = None) -> int:
         for f in d.glob("*__synthetic__*"):
             f.unlink()
             n += 1
+    _invalidate()
     return n

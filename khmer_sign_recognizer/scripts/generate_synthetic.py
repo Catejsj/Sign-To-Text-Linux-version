@@ -74,6 +74,11 @@ def main() -> None:
                     help="body-proportion range: scales sampled in "
                          "[1-jitter, 1+jitter]. 0.20 = +/-20%%.")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--method", default="scale", choices=["scale", "ik"],
+                    help="scale = original independent bone scaling (default). "
+                         "ik = anatomically-consistent identity + hand-location-"
+                         "preserving inverse kinematics. Keep 'scale' until "
+                         "there is multi-signer data to compare them on.")
     ap.add_argument("--clean", action="store_true",
                     help="delete existing synthetic samples before generating")
     args = ap.parse_args()
@@ -103,7 +108,7 @@ def main() -> None:
         made += generate_variants(
             root, clip, label=meta.label, signer_id=meta.signer_id,
             fps=meta.fps, n=args.per_take, jitter=args.jitter, rng=rng,
-            language=meta.language,
+            language=meta.language, method=args.method,
         )
 
     print(f"\nDone. {made} synthetic takes generated"

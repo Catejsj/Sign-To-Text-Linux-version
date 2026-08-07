@@ -17,6 +17,7 @@ THREADING CONTRACT (important):
 """
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,9 @@ from src.v2.normalize import (                                          # noqa: 
 )
 from src.v2.schema import save_pair                                     # noqa: E402
 from src.v2.retarget import generate_variants                          # noqa: E402
+from src.v2.recognizer import (                                        # noqa: E402
+    LiveRecognizer, bundle_path, list_models, load_bundle,
+)
 from scripts.record_session import (                                   # noqa: E402
     OverlayFont, COUNTDOWN_S, MAX_RECORD_S, MANNEQUIN_W, MANNEQUIN_H,
 )
@@ -53,8 +57,10 @@ CAM_WINDOW = "SignLink — Camera + Mannequin"
 
 
 class RecorderEngine:
-    def __init__(self, cfg, signer: str = "me", language: str = "khmer"):
+    def __init__(self, cfg, signer: str = "me", language: str = "khmer",
+                 config_path: str | None = None):
         self.cfg = cfg
+        self.config_path = config_path or str(ROOT / "config" / "settings.json")
         self.img_w = cfg["capture"]["width"]
         self.img_h = cfg["capture"]["height"]
         self.fps = cfg["capture"].get("fps", 30)
@@ -84,6 +90,12 @@ class RecorderEngine:
         self.last_saved: str | None = None
         self.quit_requested = False
 
+        # ── recognition (Recognize mode) ──
+        self.recognizer: LiveRecognizer | None = None
+        self.recognizer_name: str | None = None
+        self.last_prediction: dict | None = None
+        self.history: list[dict] = []      # recent stable predictions
+
         # ── runtime handles (main thread only) ──
         self.capture: LandmarkCapture | None = None
         self.overlay: OverlayFont | None = None
@@ -94,7 +106,12 @@ class RecorderEngine:
         self.running = False
 
     # ── lifecycle (main thread) ──────────────────────────────────────
-    def start(self) -> bool:
+    def start(self, mannequins: bool = True) -> bool:
+        """Open the camera and the native window.
+
+        `mannequins=False` is used by Recognize mode: it only needs the camera
+        feed, so skipping the Open3D scene saves GPU work and start-up time.
+        """
         if self.running:
             return True
         self.capture = LandmarkCapture(self.cfg)
@@ -103,11 +120,15 @@ class RecorderEngine:
             return False
         self.overlay = OverlayFont()
         cv2.namedWindow(CAM_WINDOW, cv2.WINDOW_NORMAL)
-        with self.lock:
-            view, desired = self.view, self.desired_mannequin
-        self._build_mannequins(self._needed_mannequin(view, desired))
-        self.current_view = view
-        cv2.resizeWindow(CAM_WINDOW, self._compose_width(view), self.img_h)
+        if mannequins:
+            with self.lock:
+                view, desired = self.view, self.desired_mannequin
+            self._build_mannequins(self._needed_mannequin(view, desired))
+            self.current_view = view
+            cv2.resizeWindow(CAM_WINDOW, self._compose_width(view), self.img_h)
+        else:
+            self.current_view = "camera"
+            cv2.resizeWindow(CAM_WINDOW, self.img_w, self.img_h)
         self.running = True
         self.quit_requested = False
         return True
@@ -225,6 +246,95 @@ class RecorderEngine:
                 self.duration = float(np.clip(duration, 0.5, MAX_RECORD_S))
             if view in ("both", "camera", "mannequin"):
                 self.view = view
+
+    # ── recognition ──────────────────────────────────────────────────
+    def start_recognition(self, model_name: str) -> None:
+        """Load a saved model and begin classifying the live camera.
+
+        Called from the Flask thread — it only builds objects and sets state;
+        the camera itself is started by the main-thread supervisor.
+        """
+        models = {m["name"]: m for m in list_models()}
+        if model_name not in models:
+            raise ValueError(f"no saved model named {model_name!r}")
+        info = models[model_name]
+        bundle = load_bundle(bundle_path(info["language"], info["algo"]))
+        with self.lock:
+            self.recognizer = LiveRecognizer(bundle, fps=self.fps)
+            self.recognizer_name = model_name
+            self.last_prediction = None
+            self.history = []
+
+    def stop_recognition(self) -> None:
+        with self.lock:
+            self.recognizer = None
+            self.recognizer_name = None
+            self.last_prediction = None
+
+    def recognition_snapshot(self) -> dict:
+        with self.lock:
+            return {
+                "active": self.recognizer is not None,
+                "model": self.recognizer_name,
+                "prediction": self.last_prediction,
+                "history": list(self.history[-8:]),
+            }
+
+    def tick_recognize(self) -> None:
+        """One recognition frame. MAIN THREAD ONLY (drives the cv2 window)."""
+        if self.capture is None:
+            return
+        ret, frame = self.capture.read_frame()
+        if not ret or frame is None:
+            cv2.waitKey(1)
+            return
+
+        with self.capture.result_lock:
+            pose = dict(self.capture.latest_pose)
+            lh = dict(self.capture.latest_left_hand)
+            rh = dict(self.capture.latest_right_hand)
+
+        with self.lock:
+            rec = self.recognizer
+
+        pred = None
+        if rec is not None and pose:
+            rec.push(frame_from_landmarks(pose, lh, rh, self.img_w, self.img_h))
+            pred = rec.predict()
+
+        if pred is not None:
+            entry = {"label": pred.label, "text": pred.text,
+                     "confidence": round(float(pred.confidence), 3),
+                     "stable": pred.stable, "moving": pred.moving,
+                     "committed": pred.committed}
+            with self.lock:
+                self.last_prediction = entry
+                # log only committed answers (end of a sign), never the same twice
+                if pred.committed and pred.text and (
+                        not self.history or self.history[-1]["text"] != pred.text):
+                    self.history.append({"text": pred.text,
+                                         "confidence": entry["confidence"],
+                                         "at": time.strftime("%H:%M:%S")})
+
+        self._draw_recognition(frame, pred)
+        cv2.imshow(CAM_WINDOW, frame)
+        if (cv2.waitKey(1) & 0xFF) == ord("q"):
+            self.request_quit()
+
+    def _draw_recognition(self, frame: np.ndarray, pred) -> None:
+        cv2.putText(frame, "RECOGNIZING", (15, 40), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9, (0, 200, 255), 2, cv2.LINE_AA)
+        if pred is None:
+            self.overlay.draw(frame, "warming up...", (15, 100), 28, (180, 180, 180))
+            return
+        if not pred.moving:
+            self.overlay.draw(frame, "waiting for a sign...", (15, 100), 28,
+                              (180, 180, 180))
+            return
+        colour = (0, 255, 0) if pred.stable else (200, 200, 200)
+        self.overlay.draw(frame, pred.text or "?", (15, 100), 44, colour)
+        cv2.putText(frame, f"{pred.confidence*100:.0f}%", (15, 165),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, colour, 2, cv2.LINE_AA)
 
     def request_quit(self) -> None:
         with self.lock:

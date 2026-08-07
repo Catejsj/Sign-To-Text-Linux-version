@@ -175,6 +175,7 @@
     .view-toggle button { flex: 1; padding: 7px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
     .view-toggle button .material-symbols-rounded { font-size: 18px; }
 
+
     .status-card { display: flex; justify-content: space-between; align-items: center; padding: 24px 32px; flex-wrap: wrap; gap: 16px; }
     .status-info { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; }
     .status-block { display: flex; flex-direction: column; gap: 6px; }
@@ -207,8 +208,31 @@
     .panel-actions { display: flex; gap: 10px; padding: 12px 0 6px; border-top: 1px solid var(--border); margin-top: 4px; }
     .btn-mini { padding: 6px 12px; font-size: 13px; }
 
-    #mode-recognize { display: none; padding: 80px 24px; text-align: center; }
-    .recognize-container { max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; align-items: center; padding: 40px; }
+    #mode-recognize { display: none; padding: 40px 32px; }
+    .recognize-wrap { max-width: 1000px; margin: 0 auto; display: grid;
+      grid-template-columns: 340px 1fr; gap: 32px; align-items: start; }
+    .model-info { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
+    .predict-card { text-align: center; padding: 40px 32px; }
+    .predict-state { font-size: 11px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--text-secondary); }
+    .predict-state.live { color: var(--success); }
+    .predict-word { font-family: var(--font-display); font-size: 52px; font-weight: 700;
+      margin: 18px 0 10px; line-height: 1.2; word-break: break-word; min-height: 64px;
+      color: var(--text); transition: color .2s ease; }
+    .predict-word.stable { color: var(--success); }
+    .predict-word.idle { color: var(--text-secondary); opacity: .5; }
+    .confbar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+      max-width: 320px; margin: 0 auto; }
+    .conffill { height: 100%; width: 0%; background: var(--primary); border-radius: 3px;
+      transition: width .2s ease; }
+    .predict-conf { font-size: 12px; color: var(--text-secondary); margin-top: 8px;
+      font-variant-numeric: tabular-nums; }
+    .history-title { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--text-secondary); margin: 28px 0 10px; }
+    .history { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; min-height: 34px; }
+    .history span { background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+      padding: 5px 14px; font-size: 14px; }
+    @media (max-width: 860px) { .recognize-wrap { grid-template-columns: 1fr; } }
     .info-note { font-size: 13px; color: var(--text-secondary); background-color: var(--primary-alpha); padding: 14px 16px; border-radius: var(--radius-sm); line-height: 1.5; display: flex; align-items: flex-start; gap: 10px; }
 
     #toast-container { position: fixed; bottom: 32px; right: 32px; display: flex; flex-direction: column; gap: 12px; z-index: 9999; }
@@ -338,18 +362,30 @@
 
   <!-- MODE 2: RECOGNIZE -->
   <div id="mode-recognize">
-    <div class="card recognize-container">
-      <span class="badge badge-idle">Phase 2</span>
-      <h2>Recognize Mode</h2>
-      <p style="color: var(--text-secondary);">Pick a trained model and language, then translate signs live.</p>
-      <select disabled style="margin-top: 8px;"><option>Select model</option></select>
-      <select disabled><option>Select language</option></select>
-      <button class="btn" style="width: 100%;" disabled>
-        <span class="material-symbols-rounded">play_arrow</span> Start Translation
-      </button>
-      <div class="info-note" style="width: 100%; background: var(--bg); border: 1px dashed var(--border);">
-        <span class="material-symbols-rounded" style="color: var(--text-secondary);">construction</span>
-        <span>Coming later. No trained model is saved yet — this mode is isolated from recording and will be built in Phase 2.</span>
+    <div class="recognize-wrap">
+      <div class="card">
+        <div class="card-header">Model</div>
+        <select id="model-select"><option value="">No saved models yet</option></select>
+        <div id="model-info" class="model-info"></div>
+        <div class="input-group">
+          <button class="btn" id="rec-start" style="flex:1" disabled>
+            <span class="material-symbols-rounded">play_arrow</span> Start</button>
+          <button class="btn btn-danger" id="rec-stop" style="flex:1" disabled>
+            <span class="material-symbols-rounded">stop</span> Stop</button>
+        </div>
+        <div class="info-note" style="margin-top:16px">
+          <span class="material-symbols-rounded" style="font-size:20px;color:var(--primary);">info</span>
+          <span>Train a model first:<br><code>run_baseline.py --algo svm --lang khmer --mode both --save</code></span>
+        </div>
+      </div>
+
+      <div class="card predict-card">
+        <div class="predict-state" id="predict-state">Not running</div>
+        <div class="predict-word" id="predict-word">—</div>
+        <div class="confbar"><div class="conffill" id="conf-fill"></div></div>
+        <div class="predict-conf"><span id="predict-conf">0%</span> confidence</div>
+        <div class="history-title">Recent</div>
+        <div id="predict-history" class="history"></div>
       </div>
     </div>
   </div>
@@ -387,6 +423,7 @@
     const apiToast = async (...a) => { try { return await api(...a); } catch (e) { toast(e.message, true); throw e; } };
 
     /* ── state ── */
+    let mode = 'record';
     let currentLang = '';
     let currentSigner = 'me';
     let currentView = 'both';
@@ -403,16 +440,21 @@
       document.querySelectorAll('#mode-toggle button').forEach(x => x.classList.toggle('active', x === b));
       $('mode-record').style.display = m === 'record' ? 'grid' : 'none';
       $('mode-recognize').style.display = m === 'recognize' ? 'block' : 'none';
+      mode = m;
       try { await api('/api/mode', 'POST', { mode: m }); } catch (_) {}
-      toast(m === 'record' ? 'Record mode — camera on' : 'Recognize mode — camera released');
+      if (m === 'recognize') { loadModels(); pollRecognize(); }
+      toast(m === 'record' ? 'Record mode — ready to record'
+                           : 'Recognize mode — pick a model and press Start');
     });
 
     /* ── languages ── */
     const rebuildLangSelect = (langs) => {
       const sel = $('lang-select');
-      const names = langs.map(l => l.name);
-      const existing = Array.from(sel.options).filter(o => !o.disabled).map(o => o.value);
-      if (JSON.stringify(names) === JSON.stringify(existing)) return;
+      // Compare names AND counts: comparing names alone meant the take counts in
+      // the dropdown went stale after a delete until a language was added.
+      const sig = langs.map(l => `${l.name}:${l.total_takes}`).join('|');
+      if (sig === sel.dataset.sig) return;
+      sel.dataset.sig = sig;
       const keep = sel.value || currentLang;
       sel.innerHTML = '<option value="" disabled>Select language</option>';
       langs.forEach(l => {
@@ -420,7 +462,7 @@
         o.value = l.name; o.textContent = `${l.name} · ${l.total_takes} takes`;
         sel.appendChild(o);
       });
-      if (names.includes(keep)) sel.value = keep;
+      if (langs.some(l => l.name === keep)) sel.value = keep;
     };
     $('lang-select').addEventListener('change', (e) => { currentLang = e.target.value; loadLabels(); });
     $('create-lang-btn').addEventListener('click', async () => {
@@ -564,8 +606,101 @@
       currentView = b.dataset.view; applyViewUI(); pushConfig();
     });
 
+
+    /* ── recognize mode ── */
+    let recModels = [];
+    let recActive = false;
+
+    async function loadModels() {
+      try {
+        const r = await api('/api/models');
+        recModels = r.models || [];
+      } catch (_) { recModels = []; }
+      const sel = $('model-select');
+      if (!recModels.length) {
+        sel.innerHTML = '<option value="">No saved models yet</option>';
+        $('rec-start').disabled = true;
+        $('model-info').textContent = 'Train one with --save to get started.';
+        return;
+      }
+      const keep = sel.value;
+      sel.innerHTML = recModels.map(m =>
+        `<option value="${esc(m.name)}">${esc(m.language)} · ${esc(m.algo)}</option>`).join('');
+      if (recModels.some(m => m.name === keep)) sel.value = keep;
+      $('rec-start').disabled = recActive;
+      showModelInfo();
+    }
+
+    function showModelInfo() {
+      const m = recModels.find(x => x.name === $('model-select').value);
+      $('model-info').textContent = m
+        ? `${m.classes} signs · ${m.accuracy != null ? (m.accuracy * 100).toFixed(1) + '% on held-out data' : 'no score'} · ${m.saved_at}`
+        : '';
+    }
+    $('model-select').addEventListener('change', showModelInfo);
+
+    $('rec-start').addEventListener('click', async () => {
+      const name = $('model-select').value;
+      if (!name) return;
+      try {
+        await api('/api/recognize/start', 'POST', { model: name });
+        recActive = true;
+        $('rec-start').disabled = true; $('rec-stop').disabled = false;
+        toast('Recognition started — sign at the camera');
+      } catch (err) { toast(err.message, true); }
+    });
+
+    $('rec-stop').addEventListener('click', async () => {
+      try { await api('/api/recognize/stop', 'POST', {}); } catch (_) {}
+      recActive = false;
+      $('rec-start').disabled = false; $('rec-stop').disabled = true;
+      $('predict-state').textContent = 'Not running';
+      $('predict-state').classList.remove('live');
+      $('predict-word').textContent = '—';
+      $('predict-word').className = 'predict-word idle';
+      $('conf-fill').style.width = '0%';
+      $('predict-conf').textContent = '0%';
+    });
+
+    async function pollRecognize() {
+      if (mode !== 'recognize') return;
+      let s; try { s = await api('/api/recognize/state'); } catch (_) { return; }
+      recActive = !!s.active;
+      $('rec-start').disabled = recActive || !$('model-select').value;
+      $('rec-stop').disabled = !recActive;
+      if (!recActive) return;
+
+      const p = s.prediction;
+      const st = $('predict-state'), w = $('predict-word');
+      st.classList.add('live');
+      if (!p) { st.textContent = 'Warming up'; w.textContent = '…'; w.className = 'predict-word idle'; return; }
+      if (p.committed) {
+        // final answer for a finished sign — the reliable one
+        st.textContent = 'Recognized';
+        w.textContent = p.text || '?';
+        w.className = 'predict-word stable';
+        const pct = Math.round((p.confidence || 0) * 100);
+        $('conf-fill').style.width = pct + '%';
+        $('predict-conf').textContent = pct + '%';
+      } else if (!p.moving) {
+        st.textContent = 'Waiting for a sign';
+        w.textContent = '—'; w.className = 'predict-word idle';
+        $('conf-fill').style.width = '0%'; $('predict-conf').textContent = '0%';
+      } else {
+        st.textContent = p.stable ? 'Recognized' : 'Reading…';
+        w.textContent = p.text || '?';
+        w.className = 'predict-word' + (p.stable ? ' stable' : '');
+        const pct = Math.round((p.confidence || 0) * 100);
+        $('conf-fill').style.width = pct + '%';
+        $('predict-conf').textContent = pct + '%';
+      }
+      $('predict-history').innerHTML = (s.history || []).slice().reverse()
+        .map(h => `<span>${esc(h.text)}</span>`).join('');
+    }
+
     /* ── polling ── */
     const poll = async () => {
+      if (mode === 'recognize') { pollRecognize(); return; }
       let data; try { data = await api('/api/state'); } catch (_) { return; }
       const e = data.engine || {};
       const st = e.state || 'IDLE';

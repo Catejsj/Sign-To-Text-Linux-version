@@ -32,17 +32,25 @@ import matplotlib.pyplot as plt                                   # noqa: E402
 from sklearn.metrics import f1_score, accuracy_score, confusion_matrix  # noqa: E402
 
 from src.v2.baseline_data import load_split                       # noqa: E402
-from scripts.run_baseline import build_model                      # noqa: E402
+from src.v2.algorithms import build_model, registry               # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "results"
 
 # The 8 algorithms in the group: 7 classical + 1 recurrent (GRU).
 CLASSICAL = ["lda", "svm", "logreg", "knn", "gboost", "mlp", "rf"]
+
+# Anything in custom_algos/ joins the comparison automatically, so a
+# teammate's own algorithm lands in the report without editing this file.
+_TABLE, _ = registry()
+CUSTOM = sorted(k for k, (_l, _f, origin) in _TABLE.items()
+                if origin != "built-in" and k not in CLASSICAL)
+CLASSICAL = CLASSICAL + CUSTOM
 PRETTY = {
     "lda": "LDA", "svm": "SVM", "logreg": "Logistic Regression",
     "knn": "k-NN", "gboost": "Gradient Boosting", "mlp": "MLP",
     "rf": "Random Forest", "gru": "GRU (recurrent)",
 }
+PRETTY.update({k: _TABLE[k][0] for k in CUSTOM})
 
 
 # ── GRU: a small recurrent baseline, trained on the raw 60-frame sequence ──
@@ -112,7 +120,7 @@ def evaluate_all(lang, seeds, holdout=None, mode="real"):
         labels = [k for k, _ in sorted(l2i.items(), key=lambda kv: kv[1])]
 
         for algo in CLASSICAL:
-            m = build_model(algo)
+            m, _, _ = build_model(algo)
             m.fit(Xtr, ytr)
             p = m.predict(Xev)
             res[algo]["acc"].append(accuracy_score(yev, p) * 100)

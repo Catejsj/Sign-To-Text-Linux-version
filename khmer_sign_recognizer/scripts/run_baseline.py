@@ -31,52 +31,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.v2.algorithms import build_model, print_list            # noqa: E402
 from src.v2.baseline_data import load_split                      # noqa: E402
 from src.v2.baseline_eval import evaluate, print_report          # noqa: E402
 
 
-def build_model(algo: str):
-    """Registry of the 8 'simple' (non-deep-learning) algorithms.
-
-    Each is wrapped in a StandardScaler pipeline so features are normalized
-    the same way for everyone. All come straight from scikit-learn.
-    """
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.neighbors import KNeighborsClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-    from sklearn.svm import SVC
-    from sklearn.naive_bayes import GaussianNB
-    from sklearn.tree import DecisionTreeClassifier
-    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-    from sklearn.neural_network import MLPClassifier
-
-    estimators = {
-        "knn":    KNeighborsClassifier(n_neighbors=5),
-        "logreg": LogisticRegression(max_iter=2000),
-        "rf":     RandomForestClassifier(n_estimators=300, random_state=0),
-        "svm":    SVC(kernel="rbf", C=10, gamma="scale"),
-        "nb":     GaussianNB(),
-        "tree":   DecisionTreeClassifier(random_state=0),
-        "gboost": GradientBoostingClassifier(random_state=0),
-        "lda":    LinearDiscriminantAnalysis(),
-        # MLP = small neural net (note: this is light deep-learning; check
-        # with the teacher if "simple algorithms only" excludes it).
-        "mlp":    MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=800,
-                                random_state=0),
-    }
-    if algo not in estimators:
-        raise SystemExit(f"--algo must be one of {sorted(estimators)}")
-    return make_pipeline(StandardScaler(), estimators[algo])
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--algo", required=True,
-                    help="knn | logreg | rf | svm | nb | tree | gboost | lda")
+    ap.add_argument("--algo", default=None,
+                    help="which algorithm to train. Run --list to see them "
+                         "all, including any added in custom_algos/.")
+    ap.add_argument("--list", action="store_true",
+                    help="show every available algorithm and exit")
     ap.add_argument("--lang", default="autsl",
                     help="language folder to use (default: autsl)")
     ap.add_argument("--mode", default="real",
@@ -116,6 +86,14 @@ def main() -> None:
                     help="save the trained model to models/recognizers/ so the "
                          "web app's Recognize mode can load it")
     args = ap.parse_args()
+
+    if args.list:
+        print_list()
+        return
+    if not args.algo:
+        raise SystemExit("--algo is required (or --list to see the options)")
+    # Fail on a bad name now, not after minutes of loading data.
+    build_model(args.algo)
 
     print(f"algo={args.algo}  lang={args.lang}  train-mode={args.mode}  "
           f"eval-on={args.eval_on}  features={args.features}"
@@ -160,7 +138,8 @@ def main() -> None:
     print(f"train: {Xtr.shape[0]} samples x {Xtr.shape[1]} features"
           f"   eval: {Xev.shape[0]} samples")
 
-    model = build_model(args.algo)
+    model, algo_label, algo_origin = build_model(args.algo)
+    print(f"model: {algo_label} ({algo_origin})")
     print("training...")
     model.fit(Xtr, ytr)
     ypred = model.predict(Xev)
@@ -197,7 +176,7 @@ def main() -> None:
         import numpy as _np
         X_all = _np.concatenate([Xtr, Xev])
         y_all = _np.concatenate([ytr, yev])
-        final = build_model(args.algo)
+        final, _, _ = build_model(args.algo)
         final.fit(X_all, y_all)
 
         labels_path = ROOT / "data" / "sequences_v2" / args.lang / "labels.json"

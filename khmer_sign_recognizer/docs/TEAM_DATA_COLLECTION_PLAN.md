@@ -154,6 +154,62 @@ python scripts/run_baseline.py --algo rf --lang khmer_var --mode both --holdout 
 takes in seconds, so it just makes the upload seven times bigger. The import
 accepts it if you do.
 
+### Which algorithm to use
+
+See everything available:
+
+```bash
+python scripts/run_baseline.py --list
+```
+
+Nine are built in: `lda` `svm` `logreg` `knn` `gboost` `mlp` `rf` `nb` `tree`.
+
+### Using your own algorithm
+
+**You do not edit any shared code.** Put a file in `custom_algos/` named
+whatever you like — `custom_algos/ridge.py`:
+
+```python
+from sklearn.linear_model import RidgeClassifier
+
+
+def make_ridge():
+    return RidgeClassifier(alpha=1.0, random_state=0)
+
+
+ALGORITHMS = {
+    "ridge": ("Ridge Classifier", make_ridge),
+}
+```
+
+That's it. It now works everywhere:
+
+```bash
+python scripts/run_baseline.py --list                 # yours is listed
+python scripts/run_baseline.py --algo ridge --lang khmer_var --mode real
+python algo_comparison/run_comparison.py --lang khmer_var   # joins the report
+```
+
+Because everyone works in their own file, **nobody's algorithm collides with
+anyone else's** — no merge conflicts when the folder is shared.
+
+Notes:
+
+- Your factory must **return** the model, not fit it. Pass the function itself
+  (`make_ridge`), not a call to it (`make_ridge()`).
+- Anything with `.fit(X, y)` / `.predict(X)` works — any sklearn estimator, a
+  `Pipeline`, or your own class.
+- Features are **already standardized** for everyone, so don't add your own
+  scaler — that's what keeps results comparable.
+- Pass `random_state=0` wherever it's accepted, or your numbers move between
+  runs and can't be compared.
+- Reusing a built-in key (e.g. `"rf"`) overrides it, which is the easy way to
+  try different parameters. `--list` shows which file it came from.
+- A broken file never blocks anyone: the built-ins keep working and the error is
+  printed with the filename.
+
+Full guide with examples: `custom_algos/README.md`.
+
 ### What to report
 
 Train twice and show both numbers:

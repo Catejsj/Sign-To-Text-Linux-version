@@ -62,13 +62,8 @@ All 7 signs, 30 takes each, sign naturally. No conditions.
 
 ## 2. Uploading
 
-Export what you recorded:
-
-```bash
-python scripts/export_recordings.py
-```
-
-Then drag the folder it makes into the Drive, **inside a folder with your name**:
+The Drive has exactly two folders. **Make a folder with your name inside the
+one you're uploading for, and copy your takes into it.**
 
 ```
 SignLink/
@@ -81,36 +76,59 @@ SignLink/
     └── …
 ```
 
-**The folder name is the only thing that matters.** It becomes your signer
-identity on import, which is what makes "can this recognise someone it has never
-seen?" answerable. Everything else — filenames, the tag you typed, how deeply
-nested it is — is sorted out automatically.
+Easiest way to get your files:
 
-Two people can use the same name inside the panel and it still works, as long as
-their Drive folders differ.
+```bash
+python scripts/export_recordings.py
+```
+
+Then copy what it produced into your folder. Copying the raw
+`data/sequences_v2/…` folders straight out of the project works too.
+
+### The only rule
+
+**Keep either the `sl_001`-style folders, or the `.json` files.** Either one on
+its own is enough to tell which sign a take is — you only lose data if you strip
+*both*, flatten everything into one pile *and* rename the files.
+
+Everything else is handled: any amount of nesting, files named anything, the
+signer tag you typed in the panel, whether you included synthetic, and importing
+the same person twice.
+
+**Your folder name becomes your signer identity.** That is what makes "can this
+recognise someone it has never seen?" answerable — the 96%-vs-63% number in our
+results. Two people can both have left the panel's tag as `me` and still
+separate correctly, as long as their Drive folders differ.
 
 ---
 
-## 3. Importing
+## 3. Pulling it into the project
 
-Download `TaskA/` and `TaskB/` and run:
+Download the `TaskA` and `TaskB` folders from the Drive (the browser's "download
+folder" is fine — it arrives as a zip, so unzip it first), then:
 
 ```bash
 python scripts/import_takes.py ~/Downloads/TaskA
 python scripts/import_takes.py ~/Downloads/TaskB
 ```
 
-That is the whole merge step. It handles any folder nesting, missing or broken
-`.json` sidecars, files named anything, real and synthetic, and repeated imports
-of the same person — nothing is ever overwritten, incoming takes are renumbered
-onto the end of what is already there. Add `--dry-run` to look first.
+That is the whole merge step. Nothing is ever overwritten — incoming takes are
+renumbered onto the end of what is already there, so running it again after more
+people upload just adds them. Use `--dry-run` first to see who it found:
+
+```
+  real takes per person
+  person     sl_001   sl_002   sl_003    total
+  dara            2        2        2        6
+  sophea          2        2        2        6
+```
 
 `TaskA` lands in the `khmer_var` language folder and `TaskB` in `khmer`, so the
 two never mix. Labels are inherited from `khmer`, so nobody needs a Khmer
 keyboard.
 
-After that, `./run_web.sh` shows both folders in the language dropdown and
-training works normally.
+After that, `./run_web.sh` shows both in the language dropdown and training works
+normally.
 
 ---
 
@@ -166,6 +184,9 @@ python scripts/verify_pool.py --lang khmer_var --expect-takes 12 --conditions
 > order and don't delete a take out of the middle. **Task B** = all 7 signs,
 > **30 takes**, sign naturally. Everyone does **all 7 signs** in both — if a
 > sign comes from only one person the model learns the person, not the sign.
-> When you're done run `python scripts/export_recordings.py` and drop the folder
-> into the Drive under **TaskA** or **TaskB**, inside a folder with your name.
-> The folder name is the only thing that has to be right.
+> When you're done run `python scripts/export_recordings.py` and copy what it
+> makes into the Drive under **TaskA** or **TaskB**, **inside a folder with your
+> name** — that folder name is the only thing that has to be right, it's how we
+> tell everyone's recordings apart. One thing not to do: don't strip the
+> `sl_001` folders *and* delete the `.json` files *and* rename everything, or we
+> can't tell which sign is which. Keeping any one of those three is fine.

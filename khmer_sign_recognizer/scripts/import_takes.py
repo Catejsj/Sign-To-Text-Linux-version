@@ -70,8 +70,20 @@ def guess_lang(src: Path) -> str | None:
     return FOLDER_LANG.get(src.name.lower().replace("-", "_"))
 
 
+def read_sidecar(npy: Path) -> dict:
+    """The .json next to a take, or {} if absent or unreadable."""
+    f = npy.with_suffix(".json")
+    if not f.exists():
+        return {}
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return {}
+
+
 def find_label(path: Path, src: Path, labels: dict) -> str | None:
-    """Nearest ancestor folder that names a label."""
+    """Which sign this take is, from the folder above it."""
     texts = {v: k for k, v in labels.items()}
     for parent in path.parents:
         if parent == src.parent:
@@ -152,21 +164,41 @@ def main() -> None:
         .read_text(encoding="utf-8"))
 
     # ---- collect: (label, signer, source, old_variant) -> {view: path}
+    #
+    # The .json sidecar is authoritative -- we wrote it, and it survives people
+    # renaming files. The filename is the fallback for takes that arrive
+    # without one. Only the signer is decided elsewhere (the upload folder),
+    # so nobody has to have typed their tag correctly.
+    SOURCES = {s.value for s in Source}
+    VIEWS = {v.value for v in View}
+
     takes: dict = defaultdict(dict)
     skipped: list[str] = []
+    unlabelled = 0
     for npy in sorted(src.rglob("*.npy")):
-        label = find_label(npy, src, labels)
-        if not label:
-            skipped.append(f"{npy.name}: no label folder above it")
-            continue
+        side = read_sidecar(npy)
         m = STEM.match(npy.stem)
+
+        label = (side.get("label") if side.get("label") in labels
+                 else None) or find_label(npy, src, labels)
+        if not label:
+            unlabelled += 1
+            skipped.append(f"{npy.relative_to(src)}: cannot tell which sign "
+                           f"(no label folder above it and no .json sidecar)")
+            continue
+
+        source = next((v for v in (side.get("source"),
+                                   m["source"] if m else None)
+                       if v in SOURCES), "real")
+        view = next((v for v in (side.get("view"), m["view"] if m else None)
+                     if v in VIEWS), "clean")
+
+        old = side.get("variant")
+        if not isinstance(old, int):
+            old = int(m["variant"]) if m else len(takes)
+
         signer = args.signer or find_signer(
-            npy, src, m["signer"] if m else None)
-        source = (m["source"] if m and m["source"] in
-                  (s.value for s in Source) else "real")
-        view = (m["view"] if m and m["view"] in
-                (v.value for v in View) else "clean")
-        old = int(m["variant"]) if m else len(takes)
+            npy, src, side.get("signer_id") or (m["signer"] if m else None))
         takes[(label, signer, source, old)][view] = npy
 
     if not takes:
@@ -220,6 +252,25 @@ def main() -> None:
     # ---- report
     print(f"\n{'would import' if args.dry_run else 'imported'} into "
           f"data/sequences_v2/{lang}/")
+
+    # real takes per person per sign — the table that shows who did what
+    grid: dict = defaultdict(int)
+    for (label, signer, source), entries in groups.items():
+        if source == "real":
+            grid[(signer, label)] += len(entries)
+    people = sorted({s for s, _ in grid})
+    signs = sorted({l for _, l in grid})
+    if people and signs:
+        w = max(len(p) for p in people) + 2
+        print("\n  real takes per person")
+        print("  " + "person".ljust(w) + "".join(s.rjust(9) for s in signs)
+              + "total".rjust(9))
+        for p in people:
+            row = "".join(str(grid.get((p, s), 0)).rjust(9) for s in signs)
+            tot = sum(grid.get((p, s), 0) for s in signs)
+            print("  " + p.ljust(w) + row + str(tot).rjust(9))
+
+    print()
     for signer in sorted(per_signer):
         parts = ", ".join(f"{n} {s}" for s, n in
                           sorted(per_signer[signer].items()))

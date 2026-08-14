@@ -135,6 +135,26 @@ people upload just adds them. Use `--dry-run` first to see who it found:
 two never mix. Labels are inherited from `khmer`, so nobody needs a Khmer
 keyboard.
 
+### Your own upload coming back to you is fine
+
+You upload your takes, so the pool you download contains them — including the
+copy already sitting on your machine. The import compares **take contents**, not
+filenames, and skips anything already there:
+
+```
+  skipped 84 take(s) already present (same content) — re-import is safe
+```
+
+This matters more than it looks. Without it your takes would land a second time
+under the name of your Drive folder, so `Piseth` and `piseth` would look like
+**two different people** — and holding out one would leave identical copies of
+those very takes in the training set. The unseen-signer score would come out
+far too high and nothing would look wrong.
+
+So you can import the same pool as many times as you like, and you never need to
+delete your local recordings first. (`--allow-duplicates` forces them in, if you
+ever actually want that.)
+
 After that, `./run_web.sh` shows both in the language dropdown and training works
 normally.
 

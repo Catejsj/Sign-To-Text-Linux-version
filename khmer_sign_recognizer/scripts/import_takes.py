@@ -38,6 +38,7 @@ Afterwards, ./run_web.sh and the training scripts see it as ordinary data.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -127,6 +128,26 @@ def find_signer(path: Path, src: Path, stem_signer: str | None) -> str:
     return stem_signer or "unknown"
 
 
+def clip_hash(arr: np.ndarray) -> str:
+    """Content fingerprint of one take, used to spot re-imports."""
+    return hashlib.blake2b(
+        np.ascontiguousarray(arr, dtype=np.float32).tobytes(),
+        digest_size=16).hexdigest()
+
+
+def existing_hashes(dest_label: Path) -> set:
+    """Fingerprints of every take already in a label folder, any signer."""
+    out = set()
+    if not dest_label.is_dir():
+        return out
+    for p in dest_label.glob("*.npy"):
+        try:
+            out.add(clip_hash(np.load(p)))
+        except Exception:                                     # noqa: BLE001
+            continue
+    return out
+
+
 def next_free(dest_label: Path, signer: str, source: str) -> int:
     n = -1
     for p in dest_label.glob(f"{signer}__{source}__*__*.npy"):
@@ -149,6 +170,10 @@ def main() -> None:
     ap.add_argument("--labels-from", default="khmer",
                     help="language to copy labels.json from if the "
                          "destination has none (default: khmer)")
+    ap.add_argument("--allow-duplicates", action="store_true",
+                    help="import takes even if identical ones are already "
+                         "there (default: skip them, so re-importing a pool "
+                         "that contains your own upload is safe)")
     ap.add_argument("--dry-run", action="store_true",
                     help="report what would happen, write nothing")
     args = ap.parse_args()
@@ -243,15 +268,29 @@ def main() -> None:
         groups[(label, signer, source)].append((old, views))
 
     written = 0
+    duplicates = 0
     per_signer: dict = defaultdict(lambda: defaultdict(int))
+    written_grid: dict = defaultdict(int)
     warnings: list[str] = []
+    seen_cache: dict = {}
 
     for (label, signer, source), entries in sorted(groups.items()):
         dest_label = dest / label
         start = next_free(dest_label, signer, source) \
             if dest_label.exists() else 0
-        for i, (_old, views) in enumerate(sorted(entries)):
-            variant = start + i
+        # Content hashes of everything already in this label folder, under ANY
+        # signer tag. Re-importing a pool that contains your own upload would
+        # otherwise duplicate your takes -- and because the tag comes from the
+        # Drive folder, the copies can land under a different spelling of your
+        # name, which reads as a second person and leaks across a
+        # leave-one-signer-out split.
+        if label not in seen_cache:
+            seen_cache[label] = existing_hashes(dest_label)
+        seen = seen_cache[label]
+
+        pending = []
+        for _old, views in sorted(entries):
+            clips: dict = {}
             for view, npy in sorted(views.items()):
                 try:
                     clip = np.load(npy).astype(np.float32)
@@ -266,6 +305,19 @@ def main() -> None:
                 if not np.isfinite(clip).all():
                     clip = np.nan_to_num(clip, nan=0.0, posinf=0.0, neginf=0.0)
                     warnings.append(f"{npy.name} had NaN/inf — zeroed")
+                clips[view] = clip
+            if not clips:
+                continue
+            digests = {v: clip_hash(c) for v, c in clips.items()}
+            if not args.allow_duplicates and all(d in seen
+                                                 for d in digests.values()):
+                duplicates += 1
+                continue
+            pending.append((clips, digests))
+
+        for i, (clips, digests) in enumerate(pending):
+            variant = start + i
+            for view, clip in sorted(clips.items()):
                 stem = f"{signer}__{source}__{view}__{variant:04d}"
                 if not args.dry_run:
                     dest_label.mkdir(parents=True, exist_ok=True)
@@ -276,23 +328,23 @@ def main() -> None:
                         notes=f"imported from {src.name}")
                     (dest_label / f"{stem}.json").write_text(
                         meta.to_json(), encoding="utf-8")
+                seen.add(digests[view])
                 written += 1
             per_signer[signer][source] += 1
+            if source == "real":
+                written_grid[(signer, label)] += 1
 
     # ---- report
     print(f"\n{'would import' if args.dry_run else 'imported'} into "
           f"data/sequences_v2/{lang}/")
 
     # real takes per person per sign — the table that shows who did what
-    grid: dict = defaultdict(int)
-    for (label, signer, source), entries in groups.items():
-        if source == "real":
-            grid[(signer, label)] += len(entries)
+    grid = written_grid
     people = sorted({s for s, _ in grid})
     signs = sorted({l for _, l in grid})
     if people and signs:
         w = max(len(p) for p in people) + 2
-        print("\n  real takes per person")
+        print("\n  real takes added, per person")
         print("  " + "person".ljust(w) + "".join(s.rjust(9) for s in signs)
               + "total".rjust(9))
         for p in people:
@@ -306,6 +358,9 @@ def main() -> None:
                           sorted(per_signer[signer].items()))
         print(f"  {signer:<15} {parts}")
     print(f"  {'':<15} {written} files total")
+    if duplicates:
+        print(f"\n  skipped {duplicates} take(s) already present "
+              f"(same content) — re-import is safe")
 
     ratios: dict = defaultdict(lambda: {"real": 0, "synthetic": 0})
     for (label, signer, source), entries in groups.items():

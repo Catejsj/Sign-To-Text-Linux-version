@@ -74,6 +74,22 @@ def _supervise(state: AppState, engine: RecorderEngine) -> None:
                 if state.shutdown:
                     break
                 mode = state.mode
+                paused = state.paused
+
+            # Pressing 'q' in the camera window pauses rather than quits, so the
+            # session can be resumed from the browser without re-running the
+            # launch command.
+            if engine.quit_requested:
+                engine.quit_requested = False
+                with state.lock:
+                    state.paused = True
+                paused = True
+
+            if paused:
+                if engine.running:
+                    engine.stop()          # release the camera, keep serving
+                time.sleep(0.05)
+                continue
 
             recognizing = mode == "recognize" and engine.recognizer is not None
 
@@ -92,8 +108,6 @@ def _supervise(state: AppState, engine: RecorderEngine) -> None:
                     engine.tick()
                 else:
                     engine.tick_recognize()
-                if engine.quit_requested:
-                    break
                 time.sleep(0.01)
             else:
                 # Recognize mode with nothing loaded yet, or idle: release the

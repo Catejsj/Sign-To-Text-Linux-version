@@ -72,10 +72,24 @@ def load_bundle(path: Path | str) -> dict:
     return joblib.load(Path(path))
 
 
+# Listing loads every bundle just to read its metadata, and a random-forest
+# bundle is several MB (measured ~40 ms total). Cache on the directory's
+# modification time, so a newly trained model still appears immediately.
+_LIST_CACHE: dict = {"key": None, "value": []}
+
+
 def list_models() -> list[dict]:
     """Every saved recognizer, newest first — for the Recognize-mode picker."""
     if not MODELS_DIR.exists():
         return []
+    try:
+        key = (MODELS_DIR.stat().st_mtime,
+               tuple(sorted((p.name, p.stat().st_mtime)
+                            for p in MODELS_DIR.glob("*.joblib"))))
+    except OSError:
+        key = None
+    if key is not None and key == _LIST_CACHE["key"]:
+        return _LIST_CACHE["value"]
     out = []
     for p in sorted(MODELS_DIR.glob("*.joblib")):
         try:
@@ -93,6 +107,7 @@ def list_models() -> list[dict]:
             "saved_at": m.get("saved_at", ""),
         })
     out.sort(key=lambda d: d["saved_at"], reverse=True)
+    _LIST_CACHE.update(key=key, value=out)
     return out
 
 

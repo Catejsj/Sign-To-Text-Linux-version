@@ -257,7 +257,9 @@
       <button class="icon-btn" id="theme-toggle" title="Toggle theme">
         <span class="material-symbols-rounded" id="theme-icon">light_mode</span>
       </button>
-      <button class="btn btn-secondary" id="quit-btn">Quit</button>
+      <button class="btn btn-secondary" id="pause-btn" title="Release the camera. The panel stays open — click again to resume.">
+        <span class="material-symbols-rounded" style="font-size:18px;">pause</span> Pause camera</button>
+      <button class="btn btn-secondary" id="quit-btn" title="Stop the server completely (you would need to run the launch command again)">Shut down</button>
     </div>
   </header>
 
@@ -702,6 +704,9 @@
     const poll = async () => {
       if (mode === 'recognize') { pollRecognize(); return; }
       let data; try { data = await api('/api/state'); } catch (_) { return; }
+      // keep the pause button honest even if the page was reloaded, or 'q' was
+      // pressed in the camera window
+      if (!!data.paused !== isPaused) { isPaused = !!data.paused; applyPauseUI(); }
       const e = data.engine || {};
       const st = e.state || 'IDLE';
       const badge = $('badge-state'); badge.textContent = st; badge.className = 'badge badge-' + st.toLowerCase();
@@ -737,10 +742,35 @@
     };
     const refreshLangs = async () => { try { rebuildLangSelect(await api('/api/languages')); } catch (_) {} };
 
+    // Pause releases the camera but leaves the server running, so the session
+    // can be resumed from this same page without re-running the launch command.
+    let isPaused = false;
+    const applyPauseUI = () => {
+      const b = $('pause-btn');
+      b.innerHTML = isPaused
+        ? '<span class="material-symbols-rounded" style="font-size:18px;">play_arrow</span> Resume camera'
+        : '<span class="material-symbols-rounded" style="font-size:18px;">pause</span> Pause camera';
+      b.classList.toggle('btn-secondary', !isPaused);
+      document.body.classList.toggle('is-paused', isPaused);
+    };
+    $('pause-btn').addEventListener('click', async () => {
+      try {
+        const r = await api('/api/pause', 'POST', { paused: !isPaused });
+        isPaused = r.paused; applyPauseUI();
+        toast(isPaused ? 'Camera released — click Resume to carry on'
+                       : 'Camera restarting…');
+      } catch (err) { toast(err.message, true); }
+    });
+
     $('quit-btn').addEventListener('click', async () => {
-      if (!confirm('Stop the SignLink server?')) return;
+      if (!confirm('Shut the server down completely?\n\n' +
+                   'You will need to run the launch command again to restart.\n' +
+                   'To just free the camera, use "Pause camera" instead.')) return;
       try { await api('/api/quit', 'POST'); } catch (_) {}
-      toast('Server stopping — you can close this tab.');
+      document.body.innerHTML =
+        '<div style="font-family:Inter,system-ui,sans-serif;text-align:center;' +
+        'margin-top:22vh;color:#5F6368"><h2 style="color:#1F1F1F">Server stopped</h2>' +
+        '<p>Run <code>./run_web.sh</code> to start it again.</p></div>';
     });
 
     setInterval(poll, 800);

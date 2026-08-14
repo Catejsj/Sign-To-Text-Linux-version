@@ -1,0 +1,9 @@
+# Sign Language MNIST algorithm lab
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+matplotlib>=3.7
+
+# Only needed for the 'gru' and 'cnn' algorithms.
+# Install separately if you want them:  pip install torch
+# torch>=2.0

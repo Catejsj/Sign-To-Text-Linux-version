@@ -72,8 +72,16 @@ _LANG_CACHE: dict = {"at": 0.0, "value": None}
 _LANG_TTL = 5.0
 
 
+# scan_language() walks every file of one language (measured 55 ms on ~24k
+# files) and is called after every record, delete and label change. Cached the
+# same way, keyed by language.
+_SCAN_CACHE: dict = {}
+_SCAN_TTL = 5.0
+
+
 def _invalidate() -> None:
     _LANG_CACHE["value"] = None
+    _SCAN_CACHE.clear()
 
 
 def list_languages(force: bool = False) -> list[dict]:
@@ -185,9 +193,19 @@ def _iter_takes(label_dir: Path):
                    int(m["variant"]), p)
 
 
-def scan_language(language: str) -> dict:
+def scan_language(language: str, force: bool = False) -> dict:
     """Full picture of a language: every label with real/synthetic take counts
-    and the individual real takes (for the delete UI)."""
+    and the individual real takes (for the delete UI). Cached — see _invalidate."""
+    now = time.time()
+    hit = _SCAN_CACHE.get(language)
+    if not force and hit and now - hit[0] < _SCAN_TTL:
+        return hit[1]
+    result = _scan_language_uncached(language)
+    _SCAN_CACHE[language] = (now, result)
+    return result
+
+
+def _scan_language_uncached(language: str) -> dict:
     lang_dir = _lang_dir(language)
     labels_map = _read_labels(language)
     result_labels = []

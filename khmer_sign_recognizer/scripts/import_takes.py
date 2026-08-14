@@ -42,6 +42,8 @@ import json
 import re
 import shutil
 import sys
+import tempfile
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -62,12 +64,25 @@ STEM = re.compile(
 SLUG = re.compile(r"^sl_\d+$")
 
 # Drive folder name -> language folder. Anything else needs --lang.
-FOLDER_LANG = {"taska": "khmer_var", "task_a": "khmer_var",
-               "taskb": "khmer", "task_b": "khmer"}
+FOLDER_LANG = {"taska": "khmer_var", "taskb": "khmer"}
+
+
+def _squash(name: str) -> str:
+    """Lowercase, drop everything that isn't a letter or digit."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
 def guess_lang(src: Path) -> str | None:
-    return FOLDER_LANG.get(src.name.lower().replace("-", "_"))
+    """Which language a downloaded folder belongs to, from its name.
+
+    Google Drive hands back names like 'TaskA-20260814T0930Z-001' and a second
+    download gives 'TaskA (1)', so match on a prefix of the squashed name
+    rather than the whole thing.
+    """
+    squashed = _squash(src.name)
+    hits = {lang for key, lang in FOLDER_LANG.items()
+            if squashed.startswith(key)}
+    return hits.pop() if len(hits) == 1 else None
 
 
 def read_sidecar(npy: Path) -> dict:
@@ -106,7 +121,7 @@ def find_signer(path: Path, src: Path, stem_signer: str | None) -> str:
     for p in parts:
         if p in ("sequences_v2", "data") or SLUG.match(p):
             continue
-        if p in FOLDER_LANG.values() or p.lower() in FOLDER_LANG:
+        if p in FOLDER_LANG.values() or _squash(p) in FOLDER_LANG:
             continue
         return p
     return stem_signer or "unknown"
@@ -139,13 +154,28 @@ def main() -> None:
     args = ap.parse_args()
 
     src = Path(args.src).expanduser().resolve()
-    if not src.is_dir():
-        sys.exit(f"not a folder: {src}")
 
-    lang = args.lang or guess_lang(src)
-    if not lang:
-        sys.exit(f"cannot tell which language '{src.name}' belongs to.\n"
-                 f"Name the folder TaskA or TaskB, or pass --lang.")
+    # Drive hands back a .zip -- take it as-is rather than making people unzip.
+    tmp: tempfile.TemporaryDirectory | None = None
+    if src.is_file() and src.suffix.lower() == ".zip":
+        lang = args.lang or guess_lang(src.with_suffix(""))
+        if not lang:
+            sys.exit(f"cannot tell which task '{src.name}' is.\n"
+                     f"Name it TaskA or TaskB, or pass --lang.")
+        tmp = tempfile.TemporaryDirectory()
+        print(f"unzipping {src.name} ...")
+        with zipfile.ZipFile(src) as z:
+            z.extractall(tmp.name)
+        src = Path(tmp.name)
+    elif not src.is_dir():
+        sys.exit(f"not a folder or .zip: {src}")
+    else:
+        lang = args.lang or guess_lang(src)
+        if not lang:
+            sys.exit(
+                f"cannot tell which task '{src.name}' is.\n"
+                f"Name the folder TaskA or TaskB, or pass "
+                f"--lang khmer_var (Task A) / --lang khmer (Task B).")
 
     dest = SEQUENCES / lang
 

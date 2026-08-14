@@ -88,7 +88,6 @@ class RecorderEngine:
         self.take_buffer: list[np.ndarray] = []
         self.session_take_count = 0
         self.last_saved: str | None = None
-        self.quit_requested = False
 
         # ── recognition (Recognize mode) ──
         self.recognizer: LiveRecognizer | None = None
@@ -130,7 +129,6 @@ class RecorderEngine:
             self.current_view = "camera"
             cv2.resizeWindow(CAM_WINDOW, self.img_w, self.img_h)
         self.running = True
-        self.quit_requested = False
         return True
 
     def stop(self) -> None:
@@ -318,8 +316,7 @@ class RecorderEngine:
 
         self._draw_recognition(frame, pred)
         cv2.imshow(CAM_WINDOW, frame)
-        if (cv2.waitKey(1) & 0xFF) == ord("q"):
-            self.request_quit()
+        cv2.waitKey(1)
 
     def _draw_recognition(self, frame: np.ndarray, pred) -> None:
         cv2.putText(frame, "RECOGNIZING", (15, 40), cv2.FONT_HERSHEY_SIMPLEX,
@@ -335,10 +332,6 @@ class RecorderEngine:
         self.overlay.draw(frame, pred.text or "?", (15, 100), 44, colour)
         cv2.putText(frame, f"{pred.confidence*100:.0f}%", (15, 165),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, colour, 2, cv2.LINE_AA)
-
-    def request_quit(self) -> None:
-        with self.lock:
-            self.quit_requested = True
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -419,10 +412,7 @@ class RecorderEngine:
         self._draw_overlay(out, now)
 
         cv2.imshow(CAM_WINDOW, out)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
-            self.request_quit()
-        elif key == ord(" "):
+        if (cv2.waitKey(1) & 0xFF) == ord(" "):
             self.stop_take()
 
     def _advance_state(self, pose, lh, rh, now: float) -> None:

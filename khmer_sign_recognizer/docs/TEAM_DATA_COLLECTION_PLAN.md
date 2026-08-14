@@ -30,23 +30,24 @@ it later. Just record.
 ### Task A — the 12-take grid
 
 Record in the morning. The camera stays straight and still — **you move, not the
-camera.** Stand far enough back that about half your body is visible and **stay
-at that distance the whole time.**
+camera.**
 
-| take | light | where you stand |
-|---|---|---|
-| 1 | full morning | middle |
-| 2 | full morning | left |
-| 3 | full morning | right |
-| 4 | full morning | middle |
-| 5 | full morning | left |
-| 6 | full morning | right |
-| 7 | **dim / half** morning | middle |
-| 8 | dim / half | left |
-| 9 | dim / half | right |
-| 10 | dim / half | middle |
-| 11 | dim / half | left |
-| 12 | dim / half | right |
+| take | light | distance | where you stand |
+|---|---|---|---|
+| 1 | full morning | **near** | middle |
+| 2 | full morning | near | left |
+| 3 | full morning | near | right |
+| 4 | full morning | **far** — about half your body visible | middle |
+| 5 | full morning | far | left |
+| 6 | full morning | far | right |
+| 7 | **dim / half** morning | near | middle |
+| 8 | dim / half | near | left |
+| 9 | dim / half | near | right |
+| 10 | dim / half | **far** | middle |
+| 11 | dim / half | far | left |
+| 12 | dim / half | far | right |
+
+Takes 7–12 repeat 1–6 exactly, only the light changes.
 
 Left and right still mean **your whole body stays in frame** — step to the edge,
 not out of it.
@@ -76,14 +77,12 @@ SignLink/
     └── …
 ```
 
-Easiest way to get your files:
+Easiest way: open the language folder you recorded into —
+`khmer_sign_recognizer/data/sequences_v2/khmer_var/` for Task A — select
+everything in it, and paste it into your name folder. That's it. The
+`sl_001`-style folders come along, which is exactly what's needed.
 
-```bash
-python scripts/export_recordings.py
-```
-
-Then copy what it produced into your folder. Copying the raw
-`data/sequences_v2/…` folders straight out of the project works too.
+`python scripts/export_recordings.py` also works if you prefer.
 
 ### The only rule
 
@@ -104,12 +103,21 @@ separate correctly, as long as their Drive folders differ.
 
 ## 3. Pulling it into the project
 
-Download the `TaskA` and `TaskB` folders from the Drive (the browser's "download
-folder" is fine — it arrives as a zip, so unzip it first), then:
+Download the `TaskA` and `TaskB` folders from the Drive and point the script at
+them. **Where you put them doesn't matter** — any path works, and the zip Drive
+gives you is accepted as-is, no unzipping:
 
 ```bash
-python scripts/import_takes.py ~/Downloads/TaskA
+python scripts/import_takes.py ~/Downloads/TaskA-20260814T0930Z-001.zip
 python scripts/import_takes.py ~/Downloads/TaskB
+```
+
+Only the **name** matters, and only loosely — `TaskA`, `task_a`, `TASK A`,
+`TaskA (1)` and Drive's `TaskA-20260814T0930Z-001` all work. If you renamed it
+to something else, say which task it is:
+
+```bash
+python scripts/import_takes.py ~/Downloads/whatever --lang khmer_var
 ```
 
 That is the whole merge step. Nothing is ever overwritten — incoming takes are
@@ -156,8 +164,14 @@ Train twice and show both numbers:
 The gap is the strongest point in the report, and it matches what we already
 measured on our own data: 96% same-signer vs 63% unseen signer.
 
-Task A also allows a **held-out condition** test — train on takes 1–6 (full
-light), test on 7–12 (dim). Robustness to something nobody trained on.
+Task A also allows **held-out condition** tests — train on one setting, test on
+one never seen. Robustness to something nobody trained on:
+
+| train on | test on |
+|---|---|
+| takes 1–6 (full light) | takes 7–12 (dim light) |
+| near takes (1–3, 7–9) | far takes (4–6, 10–12) |
+| middle + left | right |
 
 ---
 
@@ -178,10 +192,11 @@ python scripts/verify_pool.py --lang khmer_var --expect-takes 12 --conditions
 > Two tasks, both recorded normally in the panel — no photos, and **don't worry
 > about the signer tag or the language folder, they get fixed on import.**
 > **Task A** = all 7 signs, **12 takes each**, in the morning. Camera stays
-> still, **you move.** Stand back so about half your body shows and stay at that
-> distance. Takes **1–6 in full morning light**: middle, left, right, then
-> middle, left, right again. Takes **7–12: the same six in dim light.** Keep the
-> order and don't delete a take out of the middle. **Task B** = all 7 signs,
+> still, **you move.** Takes **1–3, full morning light, standing near**: middle,
+> left, right. Takes **4–6: the same but standing back so only about half your
+> body shows** — middle, left, right. Takes **7–12: those same six again in dim
+> or half morning light.** Left and right still mean your whole body stays in
+> frame. Keep the order and don't delete a take out of the middle. **Task B** = all 7 signs,
 > **30 takes**, sign naturally. Everyone does **all 7 signs** in both — if a
 > sign comes from only one person the model learns the person, not the sign.
 > When you're done run `python scripts/export_recordings.py` and copy what it

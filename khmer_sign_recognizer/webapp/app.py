@@ -31,10 +31,6 @@ class AppState:
         self.engine = engine
         self.lock = Lock()
         self.mode = "record"          # "record" | "recognize"
-        # Paused = camera released but the server and this page stay alive, so
-        # the user can resume with one click. Shutting the server down instead
-        # left the page with nothing to talk to and no way back.
-        self.paused = False
         self.shutdown = False
 
     def set_mode(self, mode: str) -> None:
@@ -60,10 +56,8 @@ def create_app(state: AppState) -> Flask:
     def api_state():
         with state.lock:
             mode = state.mode
-            paused = state.paused
         return jsonify({
             "mode": mode,
-            "paused": paused,
             "has_open3d": HAS_OPEN3D,
             "engine": engine.snapshot(),
             "languages": library.list_languages(),
@@ -225,15 +219,6 @@ def create_app(state: AppState) -> Flask:
     @app.get("/api/recognize/state")
     def api_recognize_state():
         return jsonify(engine.recognition_snapshot())
-
-    @app.post("/api/pause")
-    def api_pause():
-        """Release / re-acquire the camera without killing the server."""
-        want = (request.json or {}).get("paused")
-        with state.lock:
-            state.paused = (not state.paused) if want is None else bool(want)
-            paused = state.paused
-        return jsonify(ok=True, paused=paused)
 
     @app.post("/api/quit")
     def api_quit():

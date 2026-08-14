@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.v2.baseline_data import load_split          # noqa: E402
 from src.v2.baseline_eval import evaluate            # noqa: E402
-from scripts.run_baseline import build_model         # noqa: E402
+from src.v2.algorithms import build_model            # noqa: E402
 
 ALGOS = ["knn", "logreg", "rf", "svm", "nb", "tree", "gboost", "lda"]
 
@@ -62,7 +62,7 @@ def main() -> None:
                              ("both", (Xtr_both, ytr_both))):
             t0 = time.time()
             try:
-                model = build_model(algo)
+                model, _, _ = build_model(algo)
                 model.fit(X, y)
                 pred = model.predict(Xev)
                 m = evaluate(yev, pred, sev, n_classes)

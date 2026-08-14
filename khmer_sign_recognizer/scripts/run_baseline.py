@@ -190,11 +190,17 @@ def main() -> None:
         path = save_bundle(
             final, l2i, language=args.lang, algo=args.algo,
             feature_mode=args.features, labels_text=labels_text,
-            meta={"accuracy": round(float(metrics["accuracy"]), 4),
-                  "macro_f1": round(float(metrics["macro_f1"]), 4),
+            # These metrics belong to the model scored above, NOT to the one
+            # being saved here — that one was retrained on train+eval, so it
+            # has no held-out score at all. Named so nobody quotes them as the
+            # shipped model's accuracy.
+            meta={"eval_accuracy": round(float(metrics["accuracy"]), 4),
+                  "eval_macro_f1": round(float(metrics["macro_f1"]), 4),
+                  "eval_holdout": args.holdout,
                   "train_mode": args.mode,
                   "n_train": int(X_all.shape[0]),
-                  "holdout": args.holdout},
+                  "shipped_trained_on": "train+eval (every sample, "
+                                        "including the evaluation split)"},
         )
         print(f"saved model -> {path}")
         print("  (Recognize mode in the web app can now load it)")

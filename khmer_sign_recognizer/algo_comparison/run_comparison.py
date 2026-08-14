@@ -108,7 +108,8 @@ def sequences(split, lang, mode, l2i=None, **kw):
 
 def evaluate_all(lang, seeds, holdout=None, mode="real"):
     """Return {algo: {'acc':[], 'f1':[]}} over several splits."""
-    res = {a: {"acc": [], "f1": []} for a in CLASSICAL + ["gru"]}
+    _algos = CLASSICAL + (["gru"] if globals().get("_WANT_GRU", True) else [])
+    res = {a: {"acc": [], "f1": []} for a in _algos}
     conf = {}
     labels = None
     for seed in seeds:
@@ -127,7 +128,9 @@ def evaluate_all(lang, seeds, holdout=None, mode="real"):
             res[algo]["f1"].append(f1_score(yev, p, average="macro") * 100)
             conf.setdefault(algo, []).append(confusion_matrix(yev, p,
                                                              labels=range(len(l2i))))
-        # GRU on the raw sequence
+        # GRU on the raw sequence (skipped if --algos left it out)
+        if not globals().get("_WANT_GRU", True):
+            continue
         try:
             Str, _, _, _ = sequences("train", lang, mode, **kw)
             Sev, _, _, _ = sequences("val", lang, "real", l2i=l2i, **kw)
@@ -201,7 +204,35 @@ def main():
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--holdout", default=None,
                     help="signer to hold out for the cross-signer chart")
+    ap.add_argument("--algos", default=None,
+                    help="comma-separated algorithms to compare "
+                         "(default: every built-in plus anything in "
+                         "custom_algos/). e.g. --algos rf,lda,ridge")
+    ap.add_argument("--list", action="store_true",
+                    help="show the algorithms this would compare, and exit")
     a = ap.parse_args()
+
+    global CLASSICAL
+    if a.algos:
+        wanted = [x.strip() for x in a.algos.split(",") if x.strip()]
+        table, _ = registry()
+        unknown = [x for x in wanted if x not in table and x != "gru"]
+        if unknown:
+            raise SystemExit(
+                f"unknown algorithm(s): {', '.join(unknown)}\n"
+                f"available: {', '.join(sorted(table))}, gru")
+        PRETTY.update({x: table[x][0] for x in wanted if x in table})
+        CLASSICAL = [x for x in wanted if x != "gru"]
+        globals()["_WANT_GRU"] = "gru" in wanted
+    if a.list:
+        table, _ = registry()
+        print("would compare:")
+        for x in CLASSICAL:
+            origin = table[x][2] if x in table else "?"
+            print(f"  {x:<10} {PRETTY.get(x, x):<22} {origin}")
+        if globals().get("_WANT_GRU", True):
+            print(f"  {'gru':<10} {'GRU (recurrent)':<22} built-in (deep)")
+        return
     OUT.mkdir(parents=True, exist_ok=True)
     seeds = list(range(a.seeds))
     t0 = time.time()
@@ -236,7 +267,8 @@ def main():
               f"{a.lang} · {len(labels)} signs · {len(signers)} signers · "
               f"held-out takes (mean of {a.seeds} splits)")
 
-    algos = [x for x in (CLASSICAL + ["gru"]) if same_real[x]["acc"]]
+    algos = [x for x in (CLASSICAL + (["gru"] if globals().get("_WANT_GRU", True)
+                                      else [])) if same_real[x]["acc"]]
     algos.sort(key=lambda x: np.mean(same_real[x]["acc"]), reverse=True)
     if cross_real:
         grouped_chart(

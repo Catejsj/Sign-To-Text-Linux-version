@@ -103,7 +103,8 @@ def list_models() -> list[dict]:
             "language": m.get("language", "?"),
             "algo": m.get("algo", "?"),
             "classes": len(b.get("label_to_idx", {})),
-            "accuracy": m.get("accuracy"),
+            # older bundles stored this as "accuracy"
+            "accuracy": m.get("eval_accuracy", m.get("accuracy")),
             "saved_at": m.get("saved_at", ""),
         })
     out.sort(key=lambda d: d["saved_at"], reverse=True)

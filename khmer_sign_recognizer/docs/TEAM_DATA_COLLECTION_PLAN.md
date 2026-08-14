@@ -191,6 +191,44 @@ python scripts/run_baseline.py --algo rf --lang khmer_var --mode both --holdout 
 takes in seconds, so it just makes the upload seven times bigger. The import
 accepts it if you do.
 
+### Two different jobs — don't mix them up
+
+"Training" means two unrelated things here, and they must not be confused.
+
+| | **Comparison** (the report) | **Recognition model** (the live app) |
+|---|---|---|
+| purpose | which algorithm is best | the model Recognize mode loads |
+| how many algorithms | **many** | **one** |
+| command | `run_comparison.py` | `run_baseline.py --save` |
+| writes a model file | no | **yes**, `models/recognizers/<lang>__<algo>.joblib` |
+| what the number means | honest held-out score | **there isn't one** — see below |
+
+**Both work on any language folder.** Nothing is tied to Task A or Task B — pass
+`--lang khmer`, `--lang khmer_var`, or whatever we add later. Task A is *for*
+comparison and Task B *for* the recognition model, but that's a choice about
+which data suits which job, not a limit in the code. Either can do either.
+
+#### The trap
+
+`--save` **retrains on every sample, including the evaluation split**, and saves
+*that* model. That's the right thing for a shipped model — throwing away good
+data would be wasteful — but it means:
+
+> **The saved model has no held-out score.** The accuracy printed during the run
+> belongs to a *different* model, the one that was scored before the retrain.
+
+So never write "our recognition model is 94% accurate" using that number. The
+bundle records it as `eval_accuracy`, next to
+`shipped_trained_on: train+eval (every sample...)`, precisely so nobody quotes it
+as the shipped model's performance.
+
+Worse, `--holdout dara --save` produces a model that **has** seen dara — the
+retrain uses train+eval, and eval *is* dara. Fine for shipping, fatal if you
+then claim the live model never saw that person.
+
+**Rule of thumb:** for anything going in the report, run **without** `--save`.
+Add `--save` only when you actually want to replace the live model.
+
 ### Which algorithm to use
 
 See everything available:
@@ -200,6 +238,29 @@ python scripts/run_baseline.py --list
 ```
 
 Nine are built in: `lda` `svm` `logreg` `knn` `gboost` `mlp` `rf` `nb` `tree`.
+
+**Comparing many at once** — this is the report:
+
+```bash
+# every algorithm, on either task's data
+python algo_comparison/run_comparison.py --lang khmer_var
+python algo_comparison/run_comparison.py --lang khmer
+
+# just a few (much faster while you're iterating)
+python algo_comparison/run_comparison.py --lang khmer_var --algos rf,lda,ridge
+python algo_comparison/run_comparison.py --list
+```
+
+**Training the one live model** — only when you want to replace it:
+
+```bash
+python scripts/run_baseline.py --algo rf --lang khmer --mode both --save
+```
+
+That writes `models/recognizers/khmer__rf.joblib`, which Recognize mode loads.
+One file per `<language>__<algorithm>`, so saving a second algorithm or a second
+language adds a bundle rather than replacing one. Re-running the *same*
+language+algorithm overwrites it.
 
 ### Using your own algorithm
 

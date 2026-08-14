@@ -63,19 +63,36 @@ All 7 signs, 30 takes each, sign naturally. No conditions.
 
 ## 2. Uploading
 
-The Drive has exactly two folders. **Make a folder with your name inside the
-one you're uploading for, and copy your takes into it.**
+**Make a folder with your name inside the task you're uploading for, and copy
+your takes into it.**
 
 ```
-SignLink/
-├── TaskA/
+SignLink/                        ← the shared Drive
+├── TaskA/                       ← uploads waiting to be imported
 │   ├── sophea/…
 │   ├── dara/…
 │   └── vann/…
-└── TaskB/
-    ├── sophea/…
-    └── …
+├── TaskB/
+│   ├── sophea/…
+│   └── …
+├── data/sequences_v2/           ← DON'T put TaskA/TaskB in here
+├── models/weights_v2/
+└── logs/v2/
 ```
+
+> **TaskA and TaskB go at the top level, beside `data/` — not inside
+> `data/sequences_v2/`.** Two things break if they go inside:
+>
+> 1. `scripts/drive_sync.py push-data` runs `rclone **sync**`, which makes the
+>    Drive match one person's machine and **deletes remote files that aren't on
+>    it**. Anyone pushing from a machine without `TaskA` would erase everyone's
+>    uploads.
+> 2. The web panel lists every folder under `sequences_v2` as a language, so
+>    `TaskA` would appear in the dropdown with people's names as its signs.
+>
+> `data/sequences_v2/` on the Drive is a mirror of *processed* data. TaskA and
+> TaskB are *raw uploads waiting to be imported* — different things, different
+> lifetimes, keep them apart.
 
 Easiest way: open the language folder you recorded into —
 `khmer_sign_recognizer/data/sequences_v2/khmer_var/` for Task A — select

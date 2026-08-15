@@ -210,7 +210,17 @@ def main():
                          "custom_algos/). e.g. --algos rf,lda,ridge")
     ap.add_argument("--list", action="store_true",
                     help="show the algorithms this would compare, and exit")
+    ap.add_argument("--out", default=None,
+                    help="where to write charts and results (default: "
+                         "results/ for khmer, results_<lang>/ otherwise, so "
+                         "running two languages does not overwrite one another)")
     a = ap.parse_args()
+
+    global OUT
+    if a.out:
+        OUT = Path(a.out)
+    elif a.lang != "khmer":
+        OUT = OUT.parent / f"results_{a.lang}"
 
     global CLASSICAL
     if a.algos:

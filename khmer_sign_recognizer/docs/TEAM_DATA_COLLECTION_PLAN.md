@@ -101,11 +101,33 @@ everything in it, and paste it into your name folder. That's it. The
 
 `python scripts/export_recordings.py` also works if you prefer.
 
-### The only rule
+### The only rule — paste the FOLDERS, not their contents
 
-**Keep either the `sl_001`-style folders, or the `.json` files.** Either one on
-its own is enough to tell which sign a take is — you only lose data if you strip
-*both*, flatten everything into one pile *and* rename the files.
+Copy the `sl_001 … sl_007` **folders** into your name folder:
+
+```
+TaskA/dara/sl_001/…        ✅ correct
+TaskA/dara/sl_002/…
+```
+
+**Do not open each sign folder and paste all the files into one place.**
+
+```
+TaskA/dara/Piseth__real__clean__0000.npy    ❌ destroys data
+```
+
+Every sign folder contains the *same filenames* — `..._clean__0000.npy` exists
+in `sl_001`, `sl_002`, and all the rest. Pasting them into one folder makes each
+sign overwrite the one before it, and you keep only the last. Tested: **12 files
+pasted in, 6 survived, and 6 of the 7 signs were gone.**
+
+That loss happens **in the file manager while you paste**, before the import ever
+runs, so nothing can recover it. This is the one mistake that actually costs
+recordings.
+
+Anything else is fine — pasting the whole `khmer_var` folder, extra nesting,
+renamed files, a stray `labels.json`, or several people each doing it
+differently in the same TaskA.
 
 Everything else is handled: any amount of nesting, files named anything, the
 signer tag you typed in the panel, whether you included synthetic, and importing
@@ -239,17 +261,25 @@ python scripts/run_baseline.py --list
 
 Nine are built in: `lda` `svm` `logreg` `knn` `gboost` `mlp` `rf` `nb` `tree`.
 
+A tenth, `bagging`, comes from `custom_algos/bagging.py` — **measured the best of
+the simple algorithms on our data** (75.5% on an unseen signer vs random
+forest's 57.6%, non-overlapping intervals). See `docs/EXPERIMENT_REPORT.md`.
+
 **Comparing many at once** — this is the report:
 
 ```bash
 # every algorithm, on either task's data
-python algo_comparison/run_comparison.py --lang khmer_var
-python algo_comparison/run_comparison.py --lang khmer
+python algo_comparison/run_comparison.py --lang khmer_var --seeds 5
+python algo_comparison/run_comparison.py --lang khmer --seeds 5
 
 # just a few (much faster while you're iterating)
-python algo_comparison/run_comparison.py --lang khmer_var --algos rf,lda,ridge
+python algo_comparison/run_comparison.py --lang khmer --algos rf,lda,bagging
 python algo_comparison/run_comparison.py --list
 ```
+
+Output lands in `algo_comparison/results/` for `khmer` and
+`algo_comparison/results_<lang>/` for anything else, so the two experiments
+don't overwrite each other. Charts plus the `.docx` report.
 
 **Training the one live model** — only when you want to replace it:
 

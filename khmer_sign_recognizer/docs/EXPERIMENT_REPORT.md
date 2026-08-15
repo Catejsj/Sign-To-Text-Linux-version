@@ -44,7 +44,9 @@ Train on one signer, test on the other, both directions, 5 seeds each.
 | Random Forest | 49.4 ± 0.7 | 62.1 ± 2.3 | 57.6 | [52.5, 62.1] |
 
 Bagged trees lead random forest by roughly 18 points, and the bootstrap
-intervals do not overlap, so the gap is not sampling noise.
+intervals do not overlap, so the gap is not sampling noise. The full 5-seed
+comparison pipeline independently puts bagged trees at **75.0%** unseen-signer
+against random forest's 59.3% — the same conclusion from a separate code path.
 
 **Why bagging beats random forest here.** Both grow many trees on bootstrap
 samples; random forest additionally restricts each split to a random subset of
@@ -61,6 +63,7 @@ Standard 5-seed random split on the same data:
 |---|---|---|---|
 | Logistic Regression | 97.1% | 97.1% | 43.6% |
 | Random Forest | 96.9% | 96.9% | 59.3% |
+| **Bagged Trees** | 96.0% | 96.0% | **75.0%** |
 | Gradient Boosting | 95.0% | 95.0% | 36.2% |
 | LDA | 94.8% | 94.7% | 62.4% |
 | GRU (recurrent) | 94.3% | 94.3% | 61.4% |
@@ -68,10 +71,19 @@ Standard 5-seed random split on the same data:
 | SVM | 94.0% | 94.0% | 27.1% |
 | k-NN | 83.8% | 83.5% | 31.0% |
 
-**This table is the main result of the report.** Logistic regression is top on
-the left and second-worst on the right. The ordering barely survives the change
-of split. A ~35-point drop separates "works on people it has seen" from "works
-on anyone", and no amount of same-signer accuracy predicts the second column.
+**This table is the main result of the report.** Read the two right-hand columns
+against each other:
+
+- Logistic regression is **first** on same-signer accuracy and **seventh** on an
+  unseen signer.
+- Bagged trees is **third** on the left and **first by 12.6 points** on the
+  right.
+- SVM and MLP tie at 94.0% on the left and differ by 13 points on the right.
+
+The ordering barely survives the change of split. A 21-point drop separates the
+best same-signer score from the best unseen-signer score, and no amount of
+same-signer accuracy predicts the second column. **Picking an algorithm on the
+left-hand column would have picked the wrong one.**
 
 ---
 

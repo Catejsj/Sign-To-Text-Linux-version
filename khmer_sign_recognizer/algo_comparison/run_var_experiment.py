@@ -36,7 +36,19 @@ from src.v2.baseline_data import _featurize                        # noqa: E402
 from src.v2.dataset import discover_samples                        # noqa: E402
 from src.v2.schema import Source, View                             # noqa: E402
 
-LANG, GRID, SEEDS = "khmer_var", 12, 8
+import argparse                                                    # noqa: E402
+
+_ap = argparse.ArgumentParser(description=__doc__)
+_ap.add_argument("--lang", default="khmer_var",
+                 help="language folder to use (default: khmer_var). Whatever "
+                      "you named it in the panel — e.g. khmer_signs.")
+_ap.add_argument("--grid", type=int, default=12,
+                 help="takes per sign in the recording grid (default: 12)")
+_ap.add_argument("--seeds", type=int, default=8,
+                 help="how many random splits to average (default: 8)")
+_args = _ap.parse_args()
+
+LANG, GRID, SEEDS = _args.lang, _args.grid, _args.seeds
 OUT = ROOT / "algo_comparison" / f"results_{LANG}"
 
 KHMER = ROOT / "fonts" / "NotoSansKhmer-Regular.ttf"

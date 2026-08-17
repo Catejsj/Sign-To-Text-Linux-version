@@ -2,7 +2,13 @@
 opencv-python==4.13.0.92
 mediapipe==0.10.14
 rtmlib==0.0.15
-onnxruntime-gpu
+
+# onnxruntime-gpu has no macOS wheel at all, so an unconditional pin makes
+# `pip install -r requirements.txt` fail outright on a Mac. Split by platform:
+# Linux/Windows keep the GPU build, macOS gets the CPU one (Apple Silicon has
+# no CUDA, and rtmlib maps its 'mps' option to CPU anyway).
+onnxruntime-gpu; platform_system != "Darwin"
+onnxruntime; platform_system == "Darwin"
 
 # Math & Data Processing
 # NOTE: If numpy 2.x causes issues with mediapipe, downgrade to numpy==1.26.4

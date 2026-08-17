@@ -38,6 +38,28 @@ else:
     CAMERA_BACKEND, CAMERA_BACKEND_NAME = cv2.CAP_ANY, 'ANY'
 
 
+def _pick_device() -> str:
+    """Which device rtmlib should run RTMPose on.
+
+    Asking for 'cuda' on a machine without it raises, which is what stopped
+    this running on macOS at all. `preload_cuda_libs()` has already run above,
+    so if CUDA is genuinely usable its provider is listed by now; macOS builds
+    of onnxruntime ship no CUDA provider whatsoever, so this resolves to 'cpu'
+    there and the app starts.
+
+    There is no Apple-GPU path to pick: rtmlib maps its own 'mps' option to
+    CPUExecutionProvider, so 'cpu' is the honest answer rather than a
+    pessimistic one.
+    """
+    try:
+        import onnxruntime as ort
+        if 'CUDAExecutionProvider' in ort.get_available_providers():
+            return 'cuda'
+    except Exception as exc:                                  # noqa: BLE001
+        logger.warning("could not query onnxruntime providers: %s", exc)
+    return 'cpu'
+
+
 class OneEuroFilter:
     def __init__(self, min_cutoff=1.0, beta=0.05):
         self.min_cutoff = min_cutoff
@@ -100,13 +122,19 @@ class LandmarkCapture:
         self.cap         = None
         self.lock        = Lock()
 
-        # ── RTMPose (Pipeline A - body/arms on GPU) ──
-        logger.info("Loading RTMPose Wholebody model...")
+        # ── RTMPose (Pipeline A - body/arms; GPU where there is one) ──
+        device = _pick_device()
+        logger.info("Loading RTMPose Wholebody model on %s...", device)
+        if device == 'cpu':
+            logger.warning(
+                "No CUDA provider — RTMPose will run on CPU (roughly 10x "
+                "slower). Fine for recording takes, too slow for live "
+                "recognition.")
         self.wholebody = Wholebody(
             to_openpose=False,
             mode='balanced',
             backend='onnxruntime',
-            device='cuda'
+            device=device
         )
         dummy = np.zeros((480, 640, 3), dtype=np.uint8)
         self.wholebody(dummy)

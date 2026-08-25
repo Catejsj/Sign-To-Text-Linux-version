@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 import warnings
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -46,10 +47,15 @@ _ap.add_argument("--grid", type=int, default=12,
                  help="takes per sign in the recording grid (default: 12)")
 _ap.add_argument("--seeds", type=int, default=8,
                  help="how many random splits to average (default: 8)")
+_ap.add_argument("--mode", default="real", choices=["real", "both"],
+                 help="TRAIN data source. real=baseline, both=real+synthetic.")
 _args = _ap.parse_args()
 
-LANG, GRID, SEEDS = _args.lang, _args.grid, _args.seeds
-OUT = ROOT / "algo_comparison" / f"results_{LANG}"
+LANG, GRID, SEEDS, MODE = _args.lang, _args.grid, _args.seeds, _args.mode
+# Keep the two modes apart, or running one silently overwrites the other's
+# report and you cannot compare them.
+OUT = ROOT / "algo_comparison" / (f"results_{LANG}" if MODE == "real"
+                                  else f"results_{LANG}_{MODE}")
 
 KHMER = ROOT / "fonts" / "NotoSansKhmer-Regular.ttf"
 if KHMER.exists():
@@ -61,51 +67,109 @@ else:
 BLUE, GREY, RED = "#4472C4", "#A6A6A6", "#C00000"
 
 
-def load():
-    X, y, variants = [], [], []
-    for p, m in discover_samples(ROOT / "data" / "sequences_v2", language=LANG):
-        if m.source is not Source.REAL or m.view is not View.CLEAN:
+def _synth_ratios():
+    """How many synthetic variants exist per real take, per (signer, sign).
+
+    Measured rather than assumed. Hard-coding it is how a synthetic child ends
+    up grouped with the wrong parent, which quietly puts copies of a held-out
+    take into training.
+    """
+    counts = defaultdict(lambda: {"real": 0, "syn": 0})
+    for _p, m in discover_samples(ROOT / "data" / "sequences_v2", language=LANG):
+        if m.view is not View.CLEAN:
             continue
+        if m.source is Source.REAL:
+            counts[(m.signer_id, m.label)]["real"] += 1
+        elif m.source is Source.SYNTHETIC:
+            counts[(m.signer_id, m.label)]["syn"] += 1
+    ratios, bad = {}, []
+    for key, c in counts.items():
+        if not c["real"] or not c["syn"]:
+            continue
+        if c["syn"] % c["real"]:
+            bad.append((key, c["real"], c["syn"]))
+        ratios[key] = max(1, c["syn"] // c["real"])
+    return ratios, bad
+
+
+RATIOS, ORPHANED = _synth_ratios()
+
+
+def load():
+    """Returns features, labels, grid slot, real-flag and take id per sample.
+
+    `slot` is the position in the recording grid. A synthetic sample inherits
+    its parent's slot — it has no lighting or distance of its own, it is a
+    warped copy of a take that does.
+    """
+    X, y, slots, is_real, group_ids = [], [], [], [], []
+    group_map = {}
+    for p, m in discover_samples(ROOT / "data" / "sequences_v2", language=LANG):
+        if MODE == "real" and m.source is not Source.REAL:
+            continue
+        if MODE == "both" and m.source not in (Source.REAL, Source.SYNTHETIC):
+            continue
+        if m.view is not View.CLEAN:
+            continue
+        if m.source is Source.REAL:
+            real_v = m.variant
+        else:
+            ratio = RATIOS.get((m.signer_id, m.label), 1)
+            real_v = m.variant // ratio
         X.append(_featurize(np.load(p).astype(np.float32), "summary"))
-        y.append(m.label); variants.append(m.variant)
+        y.append(m.label)
+        slots.append(real_v % GRID)
+        is_real.append(m.source is Source.REAL)
+        key = (m.signer_id, m.label, real_v)
+        group_ids.append(group_map.setdefault(key, len(group_map)))
+
     if not X:
-        sys.exit(f"no real takes in data/sequences_v2/{LANG}/")
+        sys.exit(f"no takes in data/sequences_v2/{LANG}/")
     labels = sorted(set(y)); l2i = {l: i for i, l in enumerate(labels)}
     return (np.stack(X), np.array([l2i[t] for t in y]),
-            np.array(variants), labels)
+            np.array(slots), np.array(is_real), np.array(group_ids), labels)
 
 
-X, y, variants, LABELS = load()
-slot = variants % GRID
+X, y, slot, is_real, group_ids, LABELS = load()
+SIGNERS = sorted({m.signer_id for _p, m in
+                  discover_samples(ROOT / "data" / "sequences_v2", language=LANG)
+                  if m.source is Source.REAL})
+if ORPHANED:
+    print(f"WARNING: {len(ORPHANED)} signer/sign group(s) have synthetic that "
+          f"does not divide evenly into their real takes — regenerate:")
+    for (sg, lab), r, s in ORPHANED[:5]:
+        print(f"  {sg}/{lab}: {s} synthetic / {r} real")
 texts = {}
 lp = ROOT / "data" / "sequences_v2" / LANG / "labels.json"
 if lp.exists():
     texts = json.loads(lp.read_text(encoding="utf-8"))
 LABEL_TEXT = [texts.get(l, l) for l in LABELS]
-print(f"{len(X)} takes · {len(LABELS)} signs · {GRID} takes per sign\n")
+real_takes = sum(is_real)
+print(f"{len(X)} total takes ({real_takes} real) · {len(LABELS)} signs · {GRID} real takes per sign\n")
 
 
 def splits():
     """Take-aware random splits, one per seed."""
-    takes = np.unique(variants)
+    takes = np.unique(group_ids)
     for seed in range(SEEDS):
         rs = np.random.default_rng(seed)
         held = set(rs.choice(takes, size=max(1, len(takes) // 4),
                              replace=False).tolist())
-        yield np.array([v in held for v in variants])
+        yield np.array([g in held for g in group_ids])
 
 
 def score(factory):
     acc, pre, rec, f1 = [], [], [], []
     for ev in splits():
         m = wrap(factory()); m.fit(X[~ev], y[~ev])
-        p = m.predict(X[ev])
-        acc.append(accuracy_score(y[ev], p) * 100)
-        pre.append(precision_score(y[ev], p, average="macro",
+        eval_mask = ev & is_real
+        p = m.predict(X[eval_mask])
+        acc.append(accuracy_score(y[eval_mask], p) * 100)
+        pre.append(precision_score(y[eval_mask], p, average="macro",
                                    zero_division=0) * 100)
-        rec.append(recall_score(y[ev], p, average="macro",
+        rec.append(recall_score(y[eval_mask], p, average="macro",
                                 zero_division=0) * 100)
-        f1.append(f1_score(y[ev], p, average="macro") * 100)
+        f1.append(f1_score(y[eval_mask], p, average="macro") * 100)
     return {"acc": float(np.mean(acc)), "pre": float(np.mean(pre)),
             "rec": float(np.mean(rec)), "f1": float(np.mean(f1)),
             "sd": float(np.std(f1))}
@@ -129,9 +193,10 @@ cm = np.zeros((len(LABELS), len(LABELS)), dtype=int)
 ys, ps = [], []
 for ev in splits():
     m = wrap(best_factory()); m.fit(X[~ev], y[~ev])
-    p = m.predict(X[ev])
-    cm += confusion_matrix(y[ev], p, labels=range(len(LABELS)))
-    ys.append(y[ev]); ps.append(p)
+    eval_mask = ev & is_real
+    p = m.predict(X[eval_mask])
+    cm += confusion_matrix(y[eval_mask], p, labels=range(len(LABELS)))
+    ys.append(y[eval_mask]); ps.append(p)
 ys, ps = np.concatenate(ys), np.concatenate(ps)
 per_sign = f1_score(ys, ps, average=None, labels=range(len(LABELS))) * 100
 
@@ -144,18 +209,20 @@ CONDITIONS = {
 cond_rows = []
 for name, (a_lbl, b_lbl, mask) in CONDITIONS.items():
     m = wrap(best_factory()); m.fit(X[mask], y[mask])
-    held = f1_score(y[~mask], m.predict(X[~mask]), average="macro") * 100
+    eval_mask = ~mask & is_real
+    held = f1_score(y[eval_mask], m.predict(X[eval_mask]), average="macro") * 100
     cond_rows.append((name, a_lbl, b_lbl, held))
 baseline_f1 = results[BEST]["f1"]
 
 # The lighting result turns out to depend heavily on the algorithm, so check
 # every one rather than generalising from the single best-scoring model.
 light_mask = CONDITIONS["Lighting"][2]
+light_eval = ~light_mask & is_real
 light_all = {}
 for algo in ALGOS:
     _n, fac, _o = table_reg[algo]
     m = wrap(fac()); m.fit(X[light_mask], y[light_mask])
-    light_all[algo] = f1_score(y[~light_mask], m.predict(X[~light_mask]),
+    light_all[algo] = f1_score(y[light_eval], m.predict(X[light_eval]),
                                average="macro") * 100
 light_best = max(light_all, key=light_all.get)
 
@@ -445,23 +512,35 @@ para(doc)
 
 worst = min(cond_rows, key=lambda r: r[3])
 best_c = max(cond_rows, key=lambda r: r[3])
-para(doc, f"Yes, but unevenly. Moving nearer or further from the camera, and "
-          f"standing to one side, cost relatively little — the model still "
-          f"reaches {best_c[3]:.0f}% on a position it never trained on. "
-          f"Lighting is the exception: training only on bright recordings and "
-          f"testing on dim ones drops the score to {worst[3]:.0f}%, "
-          f"{baseline_f1 - worst[3]:.0f} points below baseline.")
-para(doc, "The practical reading is that the system tolerates people standing "
-          "in slightly different places, but not a change in how the room is "
-          "lit. Recordings intended for real use should therefore cover the "
-          "lighting the system will actually meet, rather than assuming one "
-          "session generalises.")
-para(doc, f"How badly lighting hurts depends strongly on the algorithm, and "
-          f"not in the order Section 2 would suggest. {b['name']} is the most "
-          f"accurate model overall but among the most lighting-sensitive, "
-          f"falling to {light_all[BEST]:.0f}%. The most resilient is "
-          f"{results[light_best]['name']} at {light_all[light_best]:.0f}%, "
-          f"despite ranking lower on the standard comparison:")
+para(doc, f"Yes, and unevenly. The gentlest change is "
+          f"{best_c[1]} → {best_c[2]}, where the model still reaches "
+          f"{best_c[3]:.0f}% on a setting it never trained on. The hardest is "
+          f"{worst[1]} → {worst[2]}, which drops to {worst[3]:.0f}% — "
+          f"{baseline_f1 - worst[3]:.0f} points below the "
+          f"{baseline_f1:.0f}% baseline.")
+para(doc, f"The practical reading is that the system copes with some changes "
+          f"better than others, and \"{worst[1]} → {worst[2]}\" is the one to "
+          f"design around. Recordings intended for real use should cover the "
+          f"range the system will actually meet rather than assuming one "
+          f"session generalises.")
+
+# Which model survives the lighting change is not the same question as which
+# scores highest, and depending on the data they can be the same model. Say
+# whichever is true rather than assuming they differ.
+if light_best == BEST:
+    para(doc, f"Robustness to lighting does not have to follow overall "
+              f"accuracy, though here they agree: {b['name']} is both the "
+              f"most accurate model and the one that holds up best when the "
+              f"lighting changes, at {light_all[BEST]:.0f}%. The ranking "
+              f"below is otherwise quite different from Section 2:")
+else:
+    para(doc, f"How badly lighting hurts depends strongly on the algorithm, "
+              f"and not in the order Section 2 would suggest. {b['name']} is "
+              f"the most accurate model overall but falls to "
+              f"{light_all[BEST]:.0f}% here. The most resilient is "
+              f"{results[light_best]['name']} at "
+              f"{light_all[light_best]:.0f}%, despite ranking "
+              f"#{order.index(light_best) + 1} on the standard comparison:")
 table(doc, ["Algorithm", "macro-F1, trained bright / tested dim",
             "Rank in Section 2"],
       [[results[a]["name"], f"{light_all[a]:.1f}%", f"#{order.index(a) + 1}"]
@@ -495,17 +574,30 @@ bullet(doc, f"The spread between best and worst is {spread:.0f} points, so the "
             f"choice of algorithm materially affects results on this dataset.")
 bullet(doc, "Lighting affects recognition noticeably; distance and standing "
             "position affect it far less.")
-bullet(doc, f"Robustness to lighting does not follow overall accuracy: "
-            f"{results[light_best]['name']} keeps "
-            f"{light_all[light_best]:.0f}% when the lighting changes while "
-            f"{b['name']}, the most accurate model overall, keeps only "
-            f"{light_all[BEST]:.0f}%.")
+if light_best == BEST:
+    bullet(doc, f"{b['name']} is both the most accurate model and the most "
+                f"robust to a lighting change, keeping "
+                f"{light_all[BEST]:.0f}%.")
+else:
+    bullet(doc, f"Robustness to lighting does not follow overall accuracy: "
+                f"{results[light_best]['name']} keeps "
+                f"{light_all[light_best]:.0f}% when the lighting changes while "
+                f"{b['name']}, the most accurate model overall, keeps only "
+                f"{light_all[BEST]:.0f}%.")
 if weak_idx:
     bullet(doc, f"{LABEL_TEXT[min(weak_idx, key=lambda i: per_sign[i])]} is the "
                 f"hardest sign and is the clearest target for more recordings.")
-bullet(doc, "All recordings come from one signer, so these figures describe "
-            "recognition for a known person. Performance for someone new is a "
-            "separate question and needs recordings from more of the team.")
+if len(SIGNERS) == 1:
+    bullet(doc, "All recordings come from one signer, so these figures "
+                "describe recognition for a known person. Performance for "
+                "someone new is a separate question and needs recordings from "
+                "more of the team.")
+else:
+    bullet(doc, f"Recordings come from {len(SIGNERS)} different people, and "
+                f"the test set mixes them, so these figures describe "
+                f"recognition for people the model has seen before. How well "
+                f"it works for a complete stranger is a separate question, "
+                f"answered by holding one person out entirely.")
 
 doc.add_heading("6. Reproducing this", level=1)
 para(doc, "python algo_comparison/run_var_experiment.py", size=10,

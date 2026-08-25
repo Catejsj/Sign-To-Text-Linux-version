@@ -122,30 +122,38 @@ def chart_gain():
     plt.close(fig)
 
 
-def chart_starved():
-    """The weaker an algorithm was, the more synthetic data helped it."""
-    fig, ax = plt.subplots(figsize=(6.4, 4.4))
-    xr = [R["results"][a]["f1"] for a in ALGOS]
-    yg = [GAIN[a] for a in ALGOS]
-    ax.scatter(xr, yg, s=70, color=BLUE, zorder=3)
-    for a, x, y in zip(ALGOS, xr, yg):
-        ax.annotate(NAME[a], (x, y), textcoords="offset points",
-                    xytext=(6, 4), fontsize=8)
-    if len(ALGOS) > 2:
-        k, c = np.polyfit(xr, yg, 1)
-        xs = np.linspace(min(xr), max(xr), 20)
-        ax.plot(xs, k * xs + c, "--", color=GREY, zorder=2)
-        r = np.corrcoef(xr, yg)[0, 1]
-        ax.set_title(f"Weaker algorithms gained the most  (r = {r:.2f})",
-                     fontsize=11)
-    ax.set_xlabel("macro-F1 with real data only (%)")
-    ax.set_ylabel("points gained from synthetic")
-    ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig(OUT / "cmp_starved.png", dpi=150)
+def chart_converge():
+    """Nine spread-out scores collapse onto one narrow band.
+
+    Deliberately NOT a plot of gain against starting score. Because every
+    algorithm ends up at nearly the same place, gain is almost exactly
+    (that place) minus (starting score), so those two axes correlate at
+    r = -1.00 by arithmetic. It looks like a finding and is really just the
+    convergence restated.
+    """
+    fig, ax = plt.subplots(figsize=(7.0, 4.6))
+    rf1 = [R["results"][a]["f1"] for a in ALGOS]
+    bf1 = [B["results"][a]["f1"] for a in ALGOS]
+    for a, r_, b_ in zip(ALGOS, rf1, bf1):
+        ax.plot([0, 1], [r_, b_], "-", color=GREY, alpha=.65, zorder=2)
+        ax.annotate(NAME[a], (0, r_), textcoords="offset points",
+                    xytext=(-8, -3), ha="right", fontsize=8)
+    ax.scatter([0]*len(ALGOS), rf1, s=60, color=GREY, zorder=3,
+               label="real only")
+    ax.scatter([1]*len(ALGOS), bf1, s=60, color=GREEN, zorder=3,
+               label="real + synthetic")
+    ax.set_xlim(-0.55, 1.25); ax.set_xticks([0, 1])
+    ax.set_xticklabels(["real only", "real + synthetic"])
+    ax.set_ylabel("macro-F1 (%)")
+    ax.set_title(f"Nine algorithms converge: spread "
+                 f"{max(rf1)-min(rf1):.0f} points → "
+                 f"{max(bf1)-min(bf1):.0f} points", fontsize=12)
+    ax.grid(axis="y", alpha=.3); ax.legend(fontsize=9, loc="lower right")
+    fig.tight_layout(); fig.savefig(OUT / "cmp_converge.png", dpi=150)
     plt.close(fig)
 
 
-chart_side_by_side(); chart_gain(); chart_starved()
+chart_side_by_side(); chart_gain(); chart_converge()
 print(f"charts -> {OUT}")
 
 
@@ -291,20 +299,37 @@ else:
 figure(doc, "cmp_gain.png", 6.4,
        "Figure 2 — points gained by each algorithm.")
 
-para(doc, f"The gains are not spread evenly, and the pattern is the "
-          f"interesting part: {NAME[biggest_gain]} gained the most "
-          f"({GAIN[biggest_gain]:+.1f}) and was the *weakest* algorithm on real "
-          f"data alone. {NAME[smallest_gain]} gained the least "
-          f"({GAIN[smallest_gain]:+.1f}) and was already among the strongest.")
-figure(doc, "cmp_starved.png", 5.0,
-       "Figure 3 — each algorithm's starting score against how much it gained. "
-       "Weaker starting points gained more.")
-para(doc, "That is what you would expect if the real problem is simply not "
-          "having enough recordings. With 12 takes per sign the models are "
-          "starved, and the algorithms that suffer most from having too little "
-          "data are the ones that benefit most when it arrives. Synthetic data "
-          "does not teach the model anything new about the signs — it buys back "
-          "the recordings that were never made.")
+real_spread = max(R["results"][a]["f1"] for a in ALGOS) - \
+              min(R["results"][a]["f1"] for a in ALGOS)
+both_spread = max(B["results"][a]["f1"] for a in ALGOS) - \
+              min(B["results"][a]["f1"] for a in ALGOS)
+para(doc, f"The most striking part is not the size of the gains but where "
+          f"everything ends up. On real data alone the nine algorithms are "
+          f"spread over {real_spread:.0f} points, from "
+          f"{R['results'][ALGOS[-1]]['f1']:.0f}% to "
+          f"{R['results'][ALGOS[0]]['f1']:.0f}%. With synthetic data added they "
+          f"all land between {min(B['results'][a]['f1'] for a in ALGOS):.0f}% "
+          f"and {max(B['results'][a]['f1'] for a in ALGOS):.0f}% — a spread of "
+          f"{both_spread:.0f} points.")
+figure(doc, "cmp_converge.png", 5.6,
+       "Figure 3 — every algorithm's score before and after. They converge.")
+para(doc, f"So the algorithms converge. With only 12 takes per sign, the choice "
+          f"of algorithm was worth {real_spread:.0f} points; with the synthetic "
+          f"data it is worth about {both_spread:.0f}. What looked like a "
+          f"question about algorithms turns out to have been a question about "
+          f"how much data we had.")
+para(doc, f"This also explains the Change column. {NAME[biggest_gain]} gained "
+          f"the most ({GAIN[biggest_gain]:+.1f}) and was the weakest on real "
+          f"data; {NAME[smallest_gain]} gained the least "
+          f"({GAIN[smallest_gain]:+.1f}) and was already the strongest. That is "
+          f"not a separate finding — once every algorithm finishes in the same "
+          f"narrow band, whoever started lowest necessarily gained most. It is "
+          f"the convergence restated.")
+para(doc, "Synthetic data does not teach the model anything new about the "
+          "signs; every synthetic example is derived from a real one. It "
+          "supplies examples, and with enough of them even the simplest "
+          "algorithms find the same patterns the best ones were already "
+          "finding.")
 
 # ---- 4
 doc.add_heading("4. Why this is a fair test", level=1)

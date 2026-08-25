@@ -127,9 +127,29 @@ That lets us ask a sharper question. Instead of hiding a random 25%, we hide **a
 entire condition** — train only on brightly lit recordings, then test only on dim
 ones. The model has never seen dim lighting. Does it still work?
 
-**What we found: yes, it matters, and unevenly.** Every condition costs
-something, but not equally. The report names which change is hardest for this
-dataset and by how many points.
+**What we found: yes, and not where we expected.**
+
+| trained on | tested on | macro-F1 |
+|---|---|---|
+| bright light | dim light | **78.6%** — barely any cost |
+| near the camera | further away | **66.3%** — the hardest |
+| middle/left | right | 66.9% |
+
+**Distance and standing position hurt; lighting barely does.**
+
+This is worth dwelling on, because when only **one** person had recorded, we got
+the opposite answer — lighting was catastrophic then, dropping to 23%. Four
+people recording in four different rooms gave the model enough natural variety
+in lighting that it stopped mattering.
+
+> **Say this:** "With one signer, lighting looked like our biggest problem. With
+> four signers recording in four different rooms, it stopped being a problem at
+> all — the variety came for free. What actually hurts is distance and where the
+> person stands."
+
+That is a real finding about data collection, not just about algorithms: **the
+cheapest fix for a condition problem is more people, not more careful control of
+the condition.**
 
 **The point worth making:** a model can look excellent in the room it was
 recorded in and get noticeably worse in a different one. Testing on a random
@@ -174,7 +194,41 @@ sign itself is provably unchanged.
 > synthetic copies never end up on the opposite side of the split from the
 > original."
 
-The comparison table in the results shows what it actually bought us.
+### What we found — and it's the most interesting result we have
+
+Synthetic data helped **enormously** here. Random Forest went from **79.8% to
+96.2%** macro-F1; the weakest algorithm, k-NN, went from 45% to 93%.
+
+But on our *other* dataset, the same test showed synthetic making things very
+slightly **worse** — 97.3% down to 96.4%.
+
+Both are correct. The difference is how much real data each started with:
+
+| dataset | recordings per sign | real only | + synthetic |
+|---|---|---|---|
+| Task A grid | 12 | 79.8% | **96.2%** |
+| our larger corpus | 30 | 97.3% | 96.4% |
+
+**Notice both end up at about 96%.** With 12 recordings per sign the model is
+starved, and synthetic data buys back almost exactly what wasn't recorded. With
+30 per sign there was already enough, so the synthetic adds nothing and costs a
+little precision.
+
+> **Say this:** "Synthetic data is worth a lot when you don't have much real
+> data, and worth nothing once you do. On the 12-recordings-per-sign set it
+> gained 16 points; on the 30-per-sign set it lost one. Both datasets end at
+> about 96% either way — it buys back the recordings we didn't make, up to a
+> ceiling."
+
+That's a much better answer than "augmentation helps", because it says **when**
+it helps and **why it stops**.
+
+> **If asked "how do you know it isn't cheating?"** — two things. We never test
+> on synthetic data. And a recording's synthetic copies always stay on the same
+> side of the split as the original, so the model is never tested on a warped
+> copy of something it trained on. We verified that directly: 337 groups, one
+> real recording each, none appearing on both sides. We also reproduced the
+> result with a second, independently written piece of code.
 
 ---
 

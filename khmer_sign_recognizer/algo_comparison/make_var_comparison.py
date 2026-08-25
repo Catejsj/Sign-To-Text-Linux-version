@@ -285,51 +285,78 @@ figure(doc, "cmp_side_by_side.png", 6.6,
 
 # ---- 3
 doc.add_heading("3. Does it improve things?", level=1)
-if mean_gain > 0:
-    para(doc, f"Yes, substantially. Every algorithm improved, by "
-              f"{min(GAIN.values()):+.1f} to {max(GAIN.values()):+.1f} points, "
-              f"averaging {mean_gain:+.1f}. "
-              f"{NAME[best_real]} led on real data alone at "
-              f"{R['results'][best_real]['f1']:.1f}%; with synthetic added the "
-              f"best is {NAME[best_both]} at "
-              f"{B['results'][best_both]['f1']:.1f}%.")
+# Report whichever picture the data actually shows: a broad gain, a broad
+# loss, or a mixture with outliers. Writing this as prose that assumes one
+# outcome is how the previous version ended up claiming convergence on numbers
+# that had not converged.
+gains = np.array([GAIN[a] for a in ALGOS])
+helped = [a for a in ALGOS if GAIN[a] > 1.0]
+hurt = [a for a in ALGOS if GAIN[a] < -1.0]
+flat = [a for a in ALGOS if abs(GAIN[a]) <= 1.0]
+median_gain = float(np.median(gains))
+# an outlier is anything more than 3x the median absolute move
+mad = float(np.median(np.abs(gains - median_gain))) or 1.0
+outliers = [a for a in ALGOS if abs(GAIN[a] - median_gain) > 4 * mad]
+
+if len(hurt) == 0 and len(helped) >= len(ALGOS) - 1:
+    para(doc, f"Yes. Every algorithm improved, by "
+              f"{gains.min():+.1f} to {gains.max():+.1f} points "
+              f"(median {median_gain:+.1f}).")
+elif len(helped) == 0:
+    para(doc, f"No. Nothing improved; scores moved by {gains.min():+.1f} to "
+              f"{gains.max():+.1f} points (median {median_gain:+.1f}).")
 else:
-    para(doc, f"No. On average the score changed by {mean_gain:+.1f} points, "
-              f"which is within the run-to-run variation.")
+    para(doc, f"Mixed, and modestly. {len(helped)} of {len(ALGOS)} algorithms "
+              f"improved, {len(hurt)} got worse and {len(flat)} barely moved. "
+              f"The median change is {median_gain:+.1f} points — a real but "
+              f"small effect, not the transformation that more training data "
+              f"might suggest.")
 figure(doc, "cmp_gain.png", 6.4,
-       "Figure 2 — points gained by each algorithm.")
+       "Figure 2 — points gained or lost by each algorithm.")
+
+if outliers:
+    o = max(outliers, key=lambda a: abs(GAIN[a]))
+    para(doc, f"One result stands apart and is worth explaining rather than "
+              f"averaging away: {NAME[o]} moved {GAIN[o]:+.1f} points, far "
+              f"beyond anything else. It is the single reason the mean change "
+              f"({mean_gain:+.1f}) looks worse than the median "
+              f"({median_gain:+.1f}); excluding it, the average change is "
+              f"{float(np.mean([GAIN[a] for a in ALGOS if a != o])):+.1f}.")
+    if o == "lda":
+        para(doc, "LDA works by estimating how the 576 features vary together "
+                  "within each sign, which requires inverting a large "
+                  "covariance matrix. Synthetic variants of the same recording "
+                  "are highly similar to one another — the clean view already "
+                  "divides out overall body scale, which is most of what the "
+                  "retargeting changes. Adding six near-copies of every "
+                  "recording therefore multiplies the sample count without "
+                  "adding much genuinely new variation, and that makes the "
+                  "covariance estimate unstable. Methods that do not invert a "
+                  "covariance matrix are untroubled by this.")
 
 real_spread = max(R["results"][a]["f1"] for a in ALGOS) - \
               min(R["results"][a]["f1"] for a in ALGOS)
 both_spread = max(B["results"][a]["f1"] for a in ALGOS) - \
               min(B["results"][a]["f1"] for a in ALGOS)
-para(doc, f"The most striking part is not the size of the gains but where "
-          f"everything ends up. On real data alone the nine algorithms are "
-          f"spread over {real_spread:.0f} points, from "
-          f"{R['results'][ALGOS[-1]]['f1']:.0f}% to "
-          f"{R['results'][ALGOS[0]]['f1']:.0f}%. With synthetic data added they "
-          f"all land between {min(B['results'][a]['f1'] for a in ALGOS):.0f}% "
-          f"and {max(B['results'][a]['f1'] for a in ALGOS):.0f}% — a spread of "
-          f"{both_spread:.0f} points.")
 figure(doc, "cmp_converge.png", 5.6,
-       "Figure 3 — every algorithm's score before and after. They converge.")
-para(doc, f"So the algorithms converge. With only 12 takes per sign, the choice "
-          f"of algorithm was worth {real_spread:.0f} points; with the synthetic "
-          f"data it is worth about {both_spread:.0f}. What looked like a "
-          f"question about algorithms turns out to have been a question about "
-          f"how much data we had.")
-para(doc, f"This also explains the Change column. {NAME[biggest_gain]} gained "
-          f"the most ({GAIN[biggest_gain]:+.1f}) and was the weakest on real "
-          f"data; {NAME[smallest_gain]} gained the least "
-          f"({GAIN[smallest_gain]:+.1f}) and was already the strongest. That is "
-          f"not a separate finding — once every algorithm finishes in the same "
-          f"narrow band, whoever started lowest necessarily gained most. It is "
-          f"the convergence restated.")
-para(doc, "Synthetic data does not teach the model anything new about the "
-          "signs; every synthetic example is derived from a real one. It "
-          "supplies examples, and with enough of them even the simplest "
-          "algorithms find the same patterns the best ones were already "
-          "finding.")
+       "Figure 3 — every algorithm's score before and after.")
+if both_spread < real_spread * 0.5:
+    para(doc, f"The algorithms converge: a spread of {real_spread:.0f} points "
+              f"on real data becomes {both_spread:.0f} with synthetic. The "
+              f"choice of algorithm mattered much less once there was more "
+              f"data to learn from.")
+else:
+    para(doc, f"The ranking is largely unchanged. The spread across algorithms "
+              f"was {real_spread:.0f} points on real data and "
+              f"{both_spread:.0f} with synthetic added, so the choice of "
+              f"algorithm still matters about as much as it did. Synthetic "
+              f"data did not level the field.")
+para(doc, "That is a reasonable outcome on reflection. Every synthetic example "
+          "is derived from a real recording, so it adds examples rather than "
+          "information. It can help an algorithm that is short of examples, "
+          "but it cannot supply variation that was never recorded — and the "
+          "clean view we train on already removes overall body scale, which is "
+          "much of what the retargeting varies.")
 
 # ---- 4
 doc.add_heading("4. Why this is a fair test", level=1)

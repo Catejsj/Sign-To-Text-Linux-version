@@ -74,8 +74,21 @@ def make_tree():
 
 
 def make_gboost():
-    from sklearn.ensemble import GradientBoostingClassifier
-    return GradientBoostingClassifier(random_state=0)
+    """Histogram-based gradient boosting.
+
+    The classic GradientBoostingClassifier is single-threaded and builds one
+    tree per class per iteration on the dense data. On 4,300 samples x 576
+    features (real + synthetic) that ran for over an hour and then died without
+    finishing. The histogram version bins the features first, runs in seconds
+    on the same data, and is sklearn's own recommendation above a few thousand
+    samples.
+
+    early_stopping is pinned off: the 'auto' default turns it on above 10k
+    samples and holds back 10% of training data, which makes the score depend
+    on dataset size and sklearn version.
+    """
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    return HistGradientBoostingClassifier(random_state=0, early_stopping=False)
 
 
 def make_lda():

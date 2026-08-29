@@ -1,6 +1,6 @@
 # SignLink — project overview
 
-Year-2 research project at CamTech University.
+Year-2 university research project.
 
 
 ---

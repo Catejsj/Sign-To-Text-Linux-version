@@ -263,7 +263,7 @@ Nine are built in: `lda` `svm` `logreg` `knn` `gboost` `mlp` `rf` `nb` `tree`.
 
 A tenth, `bagging`, comes from `custom_algos/bagging.py` — **measured the best of
 the simple algorithms on our data** (75.5% on an unseen signer vs random
-forest's 57.6%, non-overlapping intervals). See `docs/EXPERIMENT_REPORT.md`.
+forest's 57.6%, non-overlapping intervals). See `docs/results/EXPERIMENT_REPORT.md`.
 
 **Comparing many at once** — this is the report:
 

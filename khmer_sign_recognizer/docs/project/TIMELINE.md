@@ -34,8 +34,8 @@ DELIVERS: Web app + paper                  DELIVERS: Production app + paper
 | -1 | First trained model (smoke test, 1 signer) | Lead | `ksl_transformer_latest.pt` in Drive |
 | -1 | Browser VRM mannequin running | Lead | `mannequin_web/index.html` |
 | 0 | TCN model added, Transformer retained as baseline | Lead | `src/v2/model_tcn.py` |
-| 0 | Architecture documentation | Lead | `docs/SYSTEM_ARCHITECTURE.md`, `docs/PRESENTATION_TERM1.md` |
-| **Week of presentation** | **Term 1 review with Dr. May Thu** | All | 15-slide deck, live mannequin demo, smoke-test result |
+| 0 | Architecture documentation | Lead | `docs/reference/SYSTEM_ARCHITECTURE.md`, `docs/project/PRESENTATION_TERM1.md` |
+| **Week of presentation** | **Term 1 review with our supervisor** | All | 15-slide deck, live mannequin demo, smoke-test result |
 
 **Term 1 outcome:** advisors confirm scope, vocabulary (5 signs), and approach.
 
@@ -49,7 +49,7 @@ DELIVERS: Web app + paper                  DELIVERS: Production app + paper
 
 | Week | Milestone | Owner | Outcome |
 |---|---|---|---|
-| 1 | KSL sign validation locked: one reference video per sign | Task 6 owner | `docs/SIGN_REFERENCES.md` |
+| 1 | KSL sign validation locked: one reference video per sign | Task 6 owner | one reference clip per sign (not yet written) |
 | 1 | Recording instructions + reference video distributed to team | Lead | All teammates onboarded |
 | 1–2 | Each teammate records 3 takes × 5 signs (30 takes per person) | All 8 | ~120 total takes uploaded to Drive |
 | 3 | Lead audits all uploads — flag bad takes, request re-recordings | Lead | Clean dataset, ~110 takes (some attrition expected) |
@@ -130,11 +130,11 @@ DELIVERS: Web app + paper                  DELIVERS: Production app + paper
 
 | Milestone | Deliverable |
 |---|---|
-| Final presentation to Dr. May Thu | 25-min talk, live demo, paper draft |
+| Final presentation to our supervisor | 25-min talk, live demo, paper draft |
 | Open-source repo cleanup | Final README, archived experiments |
 | Term 3 report submission | Year-2 deliverable bundle |
 
-**Year-2 outcome to Dr. May:**
+**Year-2 outcome to report:**
 1. Working web app: webcam → KSL sign predicted as text
 2. ≥90% LOSO accuracy on 5 signs
 3. Full research paper draft
@@ -217,6 +217,6 @@ Multi-signer training run
 
 - **Lead:** review this every Sunday evening. Mark the current week. Anything not on track → identify *which task owner* is blocking and message them directly.
 - **Team:** each owner reads only their own track. Don't try to absorb the whole 2-year plan at once.
-- **Mentor (Dr. May Thu):** the Year-2 column is what we report on. Year 3 is provisional.
+- **Mentor:** the Year-2 column is what we report on. Year 3 is provisional.
 
 This document changes. When it changes, commit it with a message like `timeline: shift Task 5 to week 5 (data delays)`. Future-you will thank present-you for the audit trail.

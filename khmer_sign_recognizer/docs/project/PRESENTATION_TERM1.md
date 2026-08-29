@@ -1,6 +1,6 @@
 # SignLink — Term 1 Presentation Material
 
-Drop-in slide content for the Week-1 review with Dr. May Thu and the team.
+Drop-in slide content for the Week-1 review with our supervisor and the team.
 Copy each section into a slide deck (Google Slides / PowerPoint / Keynote).
 Diagrams below are ASCII; convert to draw.io / Excalidraw / Figma for visual polish.
 
@@ -13,8 +13,8 @@ SignLink
 Khmer Sign Language Recognition with
 Skeleton-Based Temporal Convolutional Networks
 
-Year-2 Research Project — CamTech University
-Mentor: Dr. May Thu | Lead: Seng Piseth
+Year-2 Research Project
+Supervised research project
 Term 1 Review
 ```
 
@@ -291,7 +291,7 @@ Task 8  Prediction confidence + correction loop      ← solo
 │   • Iterate to ≥90% LOSO                               │
 │   • Confidence + correction loop                       │
 │   • Paper draft                                        │
-│   • Final demo to Dr. May                              │
+│   • Final demo to our supervisor                              │
 └────────────────────────────────────────────────────────┘
               │
               ▼

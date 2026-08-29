@@ -108,7 +108,7 @@ When all 8 are done, `baseline_results.csv` gives us:
 | ... | ... | ... | ... |
 
 - **Most algorithms B > A** → synthetic works. Green light to record KSL
-  with `--synthetic` on. This is the evidence for Dr. May Thu.
+  with `--synthetic` on. This is the evidence for our supervisor.
 - **B ≈ A** → synthetic neither helps nor hurts; real data already varied
   enough. Report honestly.
 - **B < A** → synthetic is hurting. We debug `src/v2/retarget.py` (likely

@@ -334,7 +334,7 @@ TERM 3  (final term of Year 2)
 ├─ Iterate to ≥90% LOSO
 ├─ Confidence + correction loop (Task 8)
 ├─ Final paper draft
-└─ Final presentation to Dr. May Thu
+└─ Final presentation to our supervisor
 
 YEAR 3
 ├─ Term 1: Khmer text-to-speech extension
@@ -356,7 +356,7 @@ YEAR 3
 
 ---
 
-## 10. What to Show Dr. May (Term 1 presentation)
+## 10. What to Show at the Term 1 Presentation
 
 1. **Slide 1** — Title + research question
 2. **Slide 2** — Problem (no KSL recognition exists today)

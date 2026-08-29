@@ -5,9 +5,9 @@ Written as a durable record: for picking the work back up later, and as raw
 material for the research paper.
 
 Companion documents:
-- `docs/FINDINGS.md` — the research-facing writeup (results and conditions)
-- `docs/PROJECT_BRIEF_FOR_AI.md` — full project brief for literature research
-- `docs/SETUP_WINDOWS.md` — cross-platform setup
+- `docs/results/FINDINGS.md` — the research-facing writeup (results and conditions)
+- `docs/project/PROJECT_BRIEF_FOR_AI.md` — full project brief for literature research
+- `docs/setup/SETUP_WINDOWS.md` — cross-platform setup
 
 Legend: **[FIXED]** in place · **[REMOVED]** built, measured, deleted ·
 **[REVERTED]** built, tried, rolled back · **[OPEN]** known and unresolved

@@ -79,4 +79,4 @@ Camera sometimes enumerate the iPhone as camera 0.
 | Live recognition | yes | slow, not recommended |
 
 Recording is the part that matters for contributing data, and it works. See
-`docs/TEAM_DATA_COLLECTION_PLAN.md` for what to record and how to upload it.
+`docs/guides/TEAM_DATA_COLLECTION_PLAN.md` for what to record and how to upload it.

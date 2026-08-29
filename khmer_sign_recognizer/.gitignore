@@ -18,15 +18,22 @@ logs/
 *.tmp
 *.bak
 
-# ── Godot engine cache (import metadata .import files ARE committed) ──
-.godot/
-
 # ── Recorded training data (synced via Drive, not Git) ──
 data/
 *.npy
-# ── EXCEPT labels.json — small shared text file so every teammate's
-#    recorder sees the same standard label list ──
-!data/sequences_v2/*/labels.json
+# Every language's labels.json IS tracked, so the whole team records against
+# one vocabulary. Git cannot un-ignore a file inside an ignored directory, so
+# a `!data/...` rule here would not work. Add a new language's file once by
+# hand — after that it is tracked and this rule no longer applies to it:
+#     git add -f data/sequences_v2/<lang>/labels.json
+
+# ── Per-person export folders, built by scripts/export_recordings.py.
+#    They are a copy of data/ shaped for upload — regenerable, and big. ──
+exports/
+
+# ── Archives. A zipped snapshot of a folder that is already tracked goes
+#    stale the moment the folder changes; share a git ref instead. ──
+*.zip
 
 # ── Trained model weights (synced via Drive, not Git) ──
 models/

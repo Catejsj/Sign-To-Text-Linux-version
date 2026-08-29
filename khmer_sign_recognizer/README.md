@@ -1,135 +1,152 @@
-# SignLink — Khmer Sign Language Recognizer
+# khmer_sign_recognizer
 
-Year-2 research project at CamTech University.
-
-
----
-
-## What is SignLink
-
-SignLink is a system that recognises isolated Khmer Sign Language (KSL) signs
-from a standard webcam and converts them to text in real time.
-
-A person performs a sign in front of their camera. The system captures their
-skeleton — 48 joints covering the body, both hands and wrists — normalises the
-movement to remove differences between signers, and passes it through a
-Transformer model that outputs the predicted sign as text.
-
-The end product is a web app: camera feed on the left, predicted sign as text
-on the right, with a confidence score and a way to correct wrong predictions.
+The code root. Project overview and results are in the
+[repository README](../README.md); this file is the map of what is here and
+where to start.
 
 ---
 
-## Research question
+## Start here
 
-> **Can a Transformer trained on skeleton sequences generalise to signers
-> it has never seen before — using a small set of real recordings
-> plus synthetic data generated from Godot?**
-
-We target **10 signs, ≥90% accuracy on a held-out signer**.
-
-The key challenge is signer generalisation: a model that only works for
-the person who recorded the training data is not useful. We measure this
-with leave-one-signer-out validation — train on all signers except one,
-test on the one left out.
-
----
-
-## How the system works
-
-```
-Person performs a sign in front of webcam
-  │
-  ▼
-MediaPipe + RTMPose extract 48 joints per frame
-(6 body joints + 21 left hand + 21 right hand)
-  │
-  ▼
-2 seconds of movement = 60 frames
-Each frame normalised two ways:
-  ├── CLEAN  — shoulder-anchored, scale-normalised (removes signer differences)
-  └── NOISY  — raw image-space coords (keeps natural variation)
-  │
-  ▼
-SignTransformer (2.16M parameters)
-4 layers · 8 attention heads · trained on Colab
-  │
-  ▼
-Predicted sign + confidence score
-  │
-  ▼
-Web app displays text — user can correct wrong predictions
+```bash
+source venv/bin/activate
+./run_web.sh
 ```
 
----
+That opens the **control panel** — a browser page for the controls, with the
+live camera and 3D mannequin in their own desktop window. It has two modes:
 
-## Why skeleton, not video
+- **Record** — pick a language, add sign labels, record takes, review and
+  delete them, generate synthetic variants.
+- **Recognize** — load a saved model and get live predictions with confidence.
 
-Raw video is too sensitive to lighting, clothing, skin tone, and camera angle.
-Skeleton sequences strip all of that away — what remains is pure movement.
-This is what lets the model generalise across different people and environments.
-
-The paired clean/noisy approach gives us free domain randomisation:
-the clean view teaches the model signer-invariant patterns,
-the noisy view teaches it to handle natural variation.
-One recording session produces both automatically.
+No setup yet? → [`docs/setup/`](docs/setup/). Every command the project
+uses → [`docs/guides/COMMANDS.md`](docs/guides/COMMANDS.md).
 
 ---
 
-## Current state
-
-| Component | Status |
-|---|---|
-| Camera capture (MediaPipe + RTMPose) | ✅ working |
-| Session recorder | ✅ working |
-| Clean / noisy normalisation | ✅ working |
-| Drive sync and Colab training notebook | ✅ ready to run |
-| SignTransformer model architecture | ✅ built, awaiting data |
-| Godot live mannequin | ⚠️ moves but mapping is wrong |
-| Real-time inference (v2) | ❌ not yet built |
-| Web app | ❌ not yet built |
-| Trained weights | ❌ data collection not started |
-
----
-
-## Team and tasks
-
-The project is split into 8 tasks — one per team member.
-See [`WORKFLOW.md`](WORKFLOW.md) for the full task descriptions,
-data pipeline, and dependency map.
-
-New team members: read [`docs/TEAM_ONBOARDING.md`](docs/TEAM_ONBOARDING.md) first.
-
----
-
-## Repo layout
+## Layout
 
 ```
 khmer_sign_recognizer/
-├── README.md                       this file — project overview
-├── WORKFLOW.md                     tasks, data pipeline, hard rules
+├── run_web.sh / run_web.bat        launch the control panel
+├── run_mannequin.bat               launch the 3D viewer alone (Windows)
+│
 ├── src/
-│   ├── capture.py                  camera + MediaPipe + RTMPose
-│   ├── send_to_wsl.py              UDP bridge to Godot
+│   ├── capture.py                  camera + MediaPipe + RTMPose, device pick
+│   ├── cuda_setup.py               GPU library loading
 │   └── v2/
-│       ├── schema.py               data contract (filenames, shapes)
+│       ├── schema.py               THE data contract — filenames, shapes
 │       ├── normalize.py            clean + noisy normalisation
-│       ├── augment.py              training augmentations
-│       ├── dataset.py              PyTorch dataset + train/val splits
-│       ├── model_transformer.py    SignTransformer architecture
-│       └── train.py                training loop + config
+│       ├── retarget.py             synthetic signers (skeletal retargeting)
+│       ├── augment.py              time-warp / noise / rotation
+│       ├── dataset.py              sample discovery + splits
+│       ├── baseline_data.py        feature extraction for classical ML
+│       ├── baseline_eval.py        metrics and reports
+│       ├── algorithms.py           the algorithm registry
+│       ├── recognizer.py           saved-model bundles + live prediction
+│       ├── model_tcn.py            SignTCN
+│       ├── model_transformer.py    SignTransformer
+│       └── train.py                deep-model training loop
+│
 ├── scripts/
-│   ├── record_session.py           streaming recorder (paired clean+noisy)
-│   └── drive_sync.py               rclone wrapper for Drive sync
-├── notebooks/
-│   └── colab_train_v2.py           Colab training script (6 cells)
-├── khmer-sign-mannequin2/          Godot 4.6 Y-Bot mannequin
-├── docs/
-│   ├── TEAM_ONBOARDING.md          how teammates join and contribute
-│   ├── COMMANDS.md                 all commands in one place
-│   ├── FIRST_TIME_COLAB.md         lead setup guide
-│   └── ARCHITECTURE.md             detailed architecture notes
-├── config/settings.json            camera params, IPs, filter tuning
-├── update_ips.py                   refresh WSL IPs after reboot
-└── data/, models/, logs/           gitignored — synced via Drive
+│   ├── record_session.py           CLI recorder (paired clean + noisy)
+│   ├── mannequin_local.py          3D viewer / playback
+│   ├── generate_synthetic.py       build synthetic body-variants
+│   ├── import_takes.py             pool teammates' uploaded folders
+│   ├── import_dataset.py           convert an external dataset (AUTSL)
+│   ├── verify_pool.py              validate pooled data before training
+│   ├── check_labels.py             diff labels.json against the team's
+│   ├── relabel.py                  fix a wrong label safely
+│   ├── export_recordings.py        collect your own takes for upload
+│   ├── drive_sync.py               rclone wrapper
+│   └── run_baseline.py             train ONE algorithm, report metrics
+│
+├── webapp/                         the control panel
+│   ├── __main__.py                 supervisor loop (owns the main thread)
+│   ├── app.py                      Flask routes
+│   ├── engine.py                   capture/record/recognize state machine
+│   ├── library.py                  language + take scanning
+│   └── static/index.html           the whole UI, no build step
+│
+├── algo_comparison/                experiment drivers → charts + .docx
+├── custom_algos/                   drop a .py here to add an algorithm
+├── signlang_image_lab/             separate image-based side experiment
+├── notebooks/                      Colab entrypoints
+├── config/settings.json            camera params, filter tuning
+└── docs/                           indexed in docs/README.md
 ```
+
+**Not in git** (large, machine-specific, or regenerable): `data/`, `models/`,
+`venv/`, `logs/`, `exports/`, and the charts under `algo_comparison/results*/`.
+Recordings travel by Drive. The `.docx` reports and every `labels.json` **are**
+committed, so the team shares one set of results and one label vocabulary.
+
+---
+
+## The data contract
+
+One take is stored as **two** `.npy` files — the same movement in two views:
+
+```
+data/sequences_v2/<language>/<label>/<signer>__<source>__<view>__<nnnn>.npy
+                                     └ tag    └ real     └ clean  └ take
+                                                synthetic   noisy
+```
+
+Every array is `(60, 48, 3)` — 60 frames, 48 joints, xyz. 48 joints = 6 body
++ 21 left hand + 21 right hand. Each `.npy` has a `.json` sidecar carrying the
+label, signer, source and view; the sidecar is authoritative and the filename
+is the fallback.
+
+- **clean** — shoulder-anchored, scale-normalised, de-rolled. Signer-invariant.
+- **noisy** — raw image-space coordinates. Keeps natural variation.
+
+One recording session produces both automatically, which gives the model free
+domain randomisation. `src/v2/schema.py` is the single source of truth — if
+you change the shape or naming, change it there.
+
+---
+
+## Threading contract
+
+The browser is **controls only**. Flask runs in a daemon thread and does
+nothing but flip shared state; **every OpenCV and Open3D call happens on the
+main thread** in the supervisor loop in `webapp/__main__.py`. Both libraries
+crash or hang if driven from a worker thread. Keep it that way.
+
+---
+
+## Component status
+
+| | |
+|---|---|
+| Camera capture (MediaPipe + RTMPose) | working |
+| CLI recorder + web recorder | working |
+| Clean / noisy normalisation | working |
+| Synthetic signer generation | working |
+| Control panel — Record mode | working |
+| Control panel — Recognize mode | working |
+| Classical-ML comparison + reports | done — see `docs/results/` |
+| SignTCN / SignTransformer | built and trainable; classical ML is the current results path |
+| Godot mannequin + WSL UDP bridge | **removed** — replaced by an in-process Open3D window |
+
+---
+
+## Adding an algorithm
+
+Put a file in `custom_algos/`. You never edit shared code, so nobody's
+addition collides with anyone else's:
+
+```python
+from sklearn.linear_model import RidgeClassifier
+
+ALGORITHMS = {"ridge": ("Ridge Classifier", lambda: RidgeClassifier(alpha=1.0))}
+```
+
+```bash
+python scripts/run_baseline.py --list
+python scripts/run_baseline.py --algo ridge --lang khmer_var --mode real
+```
+
+Details and the gotchas: [`custom_algos/README.md`](custom_algos/README.md).

@@ -61,7 +61,7 @@ git commit -m "v2 track: Transformer pipeline + Drive sync + cleanup
 - add scripts/record_motion.py and scripts/drive_sync.py
 - add notebooks/colab_train_v2.py
 - add WORKFLOW.md
-- move ARCHITECTURE.md and SETUP.md into docs/
+- keep new docs under docs/ in the right subfolder (see docs/README.md)
 - delete zlib debug artefacts and day-1 sanity test scripts
 - commit previously untracked CNN track files (model, dataset, normalizer, recorder, visualizer, inference, record_signs)"
 ```

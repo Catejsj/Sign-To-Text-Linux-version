@@ -553,3 +553,108 @@ Against 5-fold CV on the same data: **rankings are identical**, but
   an honest estimate of it.
 
 The ± values in `Task_A_Report.docx` are therefore too tight. The means stand.
+
+---
+
+## K. The silent hand fill — the largest single defect found so far
+
+*2026-09-02. Code: `src/v2/landmarks.py`. Runs: `.icm/experiments/runs/`.*
+
+### K.1 What was wrong
+
+`normalize.fill_nans` replaces an undetected joint with its last known
+position. For a hand that means **all 21 joints collapse onto one point**, and
+nothing anywhere records that it happened — the saved array holds a
+plausible-looking coordinate where there was no measurement.
+
+Measured on `khmer_var`, 150 real takes:
+
+| | frames where the hand was not detected |
+|---|---|
+| left hand | **50.8%** |
+| right hand | **35.9%** |
+| both at once | 33.1% |
+
+Since §J.4 puts **92.3% of feature importance on hand joints**, most of what the
+models were reading was invented. This is §D3 — "hand detection ~57%" — but the
+consequence was never traced: the number was treated as a capture limitation
+rather than as corrupted input.
+
+**Why nobody caught it:** an earlier check for missing landmarks found 0%
+dropout, because `fill_nans` had already erased the NaNs. The pipeline destroys
+the evidence of its own failure before anything downstream can see it.
+
+### K.2 It is recoverable without re-recording
+
+Twenty-one joints sharing one exact coordinate does not happen to a real hand,
+so the mask can be derived from clips already on disk. It is genuine tracking
+loss, not noise: **the median take has one contiguous dropout episode per
+hand**, not scattered frames.
+
+### K.3 The dropout is partly signal and partly the signer
+
+| by sign | left missing | | by signer | left missing |
+|---|---|---|---|---|
+| ប៉ា | 75.2% | | Chingsan | **82.0%** |
+| ម៉ាក់ | 61.7% | | Seng Menghong | 55.1% |
+| ខុស | 60.6% | | Piseth | 31.5% |
+| អរគុណ | 31.8% | | Mengly | **25.9%** |
+
+Some signs are one-handed, so absence is real information. But the rate also
+varies **3× between people**, which is camera and setup, not language. Presence
+therefore partly encodes *who is signing*. **Every variant below was scored
+both same-signer and leave-one-signer-out for exactly this reason** — a
+signer-identity shortcut would improve the first and damage the second.
+
+### K.4 What fixes it, and what does not
+
+Classical, mean over nine algorithms:
+
+| variant | same signer | unseen signer |
+|---|---|---|
+| A — as shipped | 70.0 | 45.4 |
+| B — add presence features | 70.0 | 45.5 |
+| **C — summarise each hand over real frames only** | **79.1 (+9.1)** | **55.6 (+10.3)** |
+| D — B + C | 79.1 | 55.4 |
+
+TCN:
+
+| variant | same signer | unseen signer |
+|---|---|---|
+| A — as shipped | 86.2 ±2.4 | 57.8 ±18.4 |
+| B — presence channels, coordinates untouched | 83.7 ±5.6 | **50.8 (−7.0)** |
+| **C — fabricated coordinates zeroed + presence** | **87.4 (+1.3)** | **73.0 (+15.2)** |
+
+**Two results worth keeping.**
+
+1. **It helps more on a new person than on the same person** (+10.3 vs +9.1;
+   +15.2 vs +1.3). That is the signature of a real fix. A shortcut would show
+   the opposite, and given K.3 that was the outcome to rule out.
+2. **Annotating the lie is not enough.** Telling the TCN a hand was missing
+   while still feeding it the frozen coordinates made it *worse* (−7.0). The
+   fabricated numbers have to be removed, not labelled.
+
+### K.5 What changed in the code
+
+- `src/v2/landmarks.py` — `hand_presence`, `zero_missing`, `deep_input`,
+  `summary_valid`, `dropout_report`.
+- `_featurize` gains `summary_valid`; it is now `run_baseline.py`'s **default**.
+- `SignDataset(presence=True)` is the default, feeding `(60, 146)`.
+  `train.py --no-presence` restores the old behaviour for reproducing old
+  numbers. Input width follows the flag, so the model is now built from
+  `dataset.n_features` rather than a constant.
+- Presence is read from the **raw** clip, before augmentation — noise would
+  break the identical-joints signature and silently mark every hand present.
+
+`summary` and `presence=False` are both kept so pre-2026-09-02 results stay
+reproducible.
+
+### K.6 Still open
+
+- **Fix it at the source.** `fill_nans` should record a validity channel at
+  capture time instead of leaving it to be reconstructed. That changes the
+  `(60, 48, 3)` contract, so it needs a migration plan, not a patch.
+- **Why is dropout 3× worse for one signer?** If it is camera placement or
+  lighting it belongs in the recording guide, and is cheaper than any modelling
+  change.
+- **§J's tables predate this fix** and understate every configuration.

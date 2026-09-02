@@ -131,14 +131,31 @@ class SignDataset(Dataset):
         augment: bool = False,
         flip_labels: Optional[set[str]] = None,
         seed: int = 0,
+        presence: bool = True,
     ):
+        """`presence=True` feeds (60, 146): fabricated hand coordinates zeroed,
+        plus two channels saying whether each hand was really detected.
+
+        Worth +15.2 macro-F1 on an unseen signer (57.8 -> 73.0, TCN on
+        khmer_var). Set False to reproduce pre-2026-09-02 results, which were
+        trained on frozen fill values presented as measurements.
+
+        Note the input width changes with this flag, so a model trained with it
+        cannot load weights trained without it — `in_features` must match.
+        """
         if not _TORCH:
             raise ImportError("PyTorch required to use SignDataset")
         self.samples = samples
         self.label_to_idx = label_to_idx
         self.augment = augment
         self.flip_labels = flip_labels or set()
+        self.presence = presence
         self.rng = np.random.default_rng(seed)
+
+    @property
+    def n_features(self) -> int:
+        """What to pass as the model's `in_features`."""
+        return NUM_JOINTS * NUM_COORDS + (2 if self.presence else 0)
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -148,12 +165,24 @@ class SignDataset(Dataset):
         clip = np.load(npy).astype(np.float32)
         if clip.shape != (SEQ_LEN, NUM_JOINTS, NUM_COORDS):
             raise ValueError(f"{npy}: shape {clip.shape} != expected")
+        # Presence is read from the RAW clip. Augmentation adds per-joint noise,
+        # which would break the "21 identical joints" signature the mask is
+        # derived from and silently turn every missing hand into a present one.
+        if self.presence:
+            from .landmarks import hand_presence, zero_missing
+            pres = hand_presence(clip)
+            clip = zero_missing(clip, pres)
+
         if self.augment:
             flip_prob = 0.5 if meta.label in self.flip_labels else 0.0
             clip = augment_clip(clip, flip_prob=flip_prob, rng=self.rng)
-        feat = clip.reshape(SEQ_LEN, -1)  # (60, 144)
+
+        feat = clip.reshape(SEQ_LEN, -1)                       # (60, 144)
+        if self.presence:
+            feat = np.concatenate([feat, pres], axis=1)        # (60, 146)
         y = self.label_to_idx[meta.label]
-        return torch.from_numpy(feat), torch.tensor(y, dtype=torch.long)
+        return (torch.from_numpy(np.ascontiguousarray(feat, dtype=np.float32)),
+                torch.tensor(y, dtype=torch.long))
 
 
 def source_stats(samples: list[tuple[Path, SampleMeta]]) -> dict:

@@ -29,7 +29,7 @@ ROOT_DEFAULT = Path(__file__).resolve().parents[2] / "data" / "sequences_v2"
 
 VALID_SPLITS = ("train", "val", "test")
 VALID_SOURCE_MODES = ("real", "synthetic", "both")
-VALID_FEATURES = ("summary", "flat")
+VALID_FEATURES = ("summary_valid", "summary", "flat")
 
 
 def split_of(signer_id: str) -> str:
@@ -43,12 +43,30 @@ def split_of(signer_id: str) -> str:
 def _featurize(clip: np.ndarray, feature_mode: str) -> np.ndarray:
     """(60, 48, 3) clip -> 1-D feature vector.
 
-    flat    : every number, 60*48*3 = 8640 features. Faithful but high-dim.
-    summary : per-(joint,coord) mean/std/min/max over time, 48*3*4 = 576
-              features. Lower-dim, usually better for classical models.
+    flat          : every number, 60*48*3 = 8640. Faithful but high-dim.
+    summary       : per-(joint,coord) mean/std/min/max over time, 576.
+    summary_valid : as `summary`, but each hand is summarised only over the
+                    frames it was actually detected in, plus 6 presence
+                    features. 582.
+
+    Prefer `summary_valid`. `summary` averages over frames where the tracker
+    had lost the hand and `fill_nans` had written a frozen copy of its last
+    position — and because that value is held for many frames it very often
+    becomes the min or the max, so the feature ends up recording where the hand
+    was last seen rather than anything about the sign. Hands are missing in
+    50.8% / 35.9% of frames (left / right) on `khmer_var`.
+
+    Measured over nine algorithms, `summary` -> `summary_valid`:
+    same-signer 70.0 -> 79.1, unseen-signer 45.4 -> 55.6. See
+    `src/v2/landmarks.py` and docs/project/PROBLEM_LOG.md K.
+
+    `summary` is kept so older results stay reproducible.
     """
     if feature_mode == "flat":
         return clip.reshape(-1).astype(np.float32)
+    if feature_mode == "summary_valid":
+        from .landmarks import summary_valid
+        return summary_valid(clip)
     return np.concatenate([
         clip.mean(axis=0).reshape(-1),
         clip.std(axis=0).reshape(-1),

@@ -31,6 +31,11 @@ class TrainConfig:
     val_frac: float = 0.15
     seed: int = 42
     device: str = "cuda"
+    # Zero fabricated hand coordinates and add two "was this hand really
+    # detected" channels, making the input (60, 146). Worth +15.2 macro-F1 on
+    # an unseen signer. False reproduces pre-2026-09-02 behaviour, which fed
+    # frozen fill values as if they were measurements. See src/v2/landmarks.py.
+    presence: bool = True
     held_out_signer: str | None = None   # enables leave-one-signer-out if set
     flip_labels: list[str] | None = None
     model_type: str = "tcn"              # "tcn" (recommended) or "transformer"
@@ -82,8 +87,10 @@ def train(cfg: TrainConfig) -> dict:
 
     flip_set = set(cfg.flip_labels or [])
     train_ds = SignDataset(train_s, label_to_idx, augment=True,
-                           flip_labels=flip_set, seed=cfg.seed)
-    val_ds = SignDataset(val_s, label_to_idx, augment=False)
+                           flip_labels=flip_set, seed=cfg.seed,
+                           presence=cfg.presence)
+    val_ds = SignDataset(val_s, label_to_idx, augment=False,
+                         presence=cfg.presence)
 
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size,
                               shuffle=True, num_workers=0, drop_last=False)
@@ -91,10 +98,15 @@ def train(cfg: TrainConfig) -> dict:
                             shuffle=False, num_workers=0)
 
     device = cfg.device if torch.cuda.is_available() or cfg.device == "cpu" else "cpu"
+    # Input width follows the presence flag (144 or 146), so the model must be
+    # built from the dataset rather than from the default.
+    n_in = train_ds.n_features
     if cfg.model_type == "tcn":
-        model = SignTCN(num_classes=len(label_to_idx)).to(device)
+        model = SignTCN(num_classes=len(label_to_idx),
+                        in_features=n_in).to(device)
     elif cfg.model_type == "transformer":
-        model = SignTransformer(num_classes=len(label_to_idx)).to(device)
+        model = SignTransformer(num_classes=len(label_to_idx),
+                                feature_dim=n_in).to(device)
     else:
         raise ValueError(f"unknown model_type: {cfg.model_type!r} "
                          "(expected 'tcn' or 'transformer')")
@@ -198,6 +210,11 @@ def main() -> None:
     ap.add_argument("--data-root", default=str(root / "data" / "sequences_v2"))
     ap.add_argument("--save", action="store_true",
                     help="also write a bundle for the web app's Recognize mode")
+    ap.add_argument("--no-presence", action="store_true",
+                    help="feed the raw (60,144) with fabricated hand "
+                         "coordinates left in, as before 2026-09-02. Only for "
+                         "reproducing old numbers — costs ~15 macro-F1 on an "
+                         "unseen signer.")
     a = ap.parse_args()
 
     tag = f"{a.lang or 'all'}_{a.model}"
@@ -209,6 +226,7 @@ def main() -> None:
         val_frac=a.val_frac, seed=a.seed, device=a.device,
         held_out_signer=a.holdout, model_type=a.model,
         language=a.lang, save_bundle=a.save,
+        presence=not a.no_presence,
     )
     out = train(cfg)
     print(f"\nbest val acc: {out['best_val_acc']:.3f}")

@@ -16,6 +16,7 @@ from .dataset import (
     split_random, split_leave_one_signer_out, source_stats,
 )
 from .model_transformer import SignTransformer
+from .model_rnn import SignRNN
 from .model_tcn import SignTCN, num_params
 
 
@@ -42,7 +43,12 @@ class TrainConfig:
     bones: bool = True
     held_out_signer: str | None = None   # enables leave-one-signer-out if set
     flip_labels: list[str] | None = None
-    model_type: str = "tcn"              # "tcn" (recommended) or "transformer"
+    # gru / bigru / lstm / bilstm / tcn / transformer. Ranked by UNSEEN-signer
+    # macro-F1 on khmer_var: bigru 85.1, bilstm 84.7, gru 83.7, transformer
+    # 81.8, tcn 81.4, lstm 79.4. The bi* variants read the clip backwards as
+    # well, which is fine offline and impossible on a live rolling buffer, so
+    # gru is the default: the best model that can actually run live.
+    model_type: str = "gru"
     # Which language folder to train on. None = ALL languages, which is almost
     # never what you want once more than one language has been recorded.
     language: str | None = None
@@ -111,9 +117,17 @@ def train(cfg: TrainConfig) -> dict:
     elif cfg.model_type == "transformer":
         model = SignTransformer(num_classes=len(label_to_idx),
                                 feature_dim=n_in).to(device)
+    elif cfg.model_type in ("gru", "bigru", "lstm", "bilstm"):
+        # Bidirectional reads the clip backwards too. Fine for scoring a
+        # recorded take, impossible on a live rolling buffer -- there is no
+        # future to read. Use gru/lstm for anything that has to run live.
+        model = SignRNN(num_classes=len(label_to_idx), in_features=n_in,
+                        cell="lstm" if "lstm" in cfg.model_type else "gru",
+                        bidirectional=cfg.model_type.startswith("bi")).to(device)
     else:
-        raise ValueError(f"unknown model_type: {cfg.model_type!r} "
-                         "(expected 'tcn' or 'transformer')")
+        raise ValueError(
+            f"unknown model_type: {cfg.model_type!r} (expected one of "
+            "tcn, transformer, gru, bigru, lstm, bilstm)")
     print(f"model: {cfg.model_type}  params: {num_params(model):,}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr,
@@ -203,8 +217,15 @@ def main() -> None:
         description="Train the TCN / Transformer sign recognizer.")
     ap.add_argument("--lang", default=None,
                     help="language folder to train on (default: ALL languages)")
-    ap.add_argument("--model", default="tcn", choices=["tcn", "transformer"],
-                    help="tcn is the better choice on small datasets")
+    ap.add_argument("--model", default="gru",
+                    choices=["gru", "bigru", "lstm", "bilstm",
+                             "tcn", "transformer"],
+                    help="ranked by UNSEEN-signer macro-F1 on khmer_var: "
+                         "bigru 85.1, bilstm 84.7, gru 83.7, transformer 81.8, "
+                         "tcn 81.4, lstm 79.4. bigru/bilstm read the clip "
+                         "backwards too, so they cannot run on a live rolling "
+                         "buffer -- gru is the default because it is the best "
+                         "model that can.")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--lr", type=float, default=1e-3)

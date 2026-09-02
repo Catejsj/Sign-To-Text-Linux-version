@@ -823,3 +823,145 @@ Best configuration now: **TCN + presence + bone directions, 92.0 same-signer /
   is the cheap 80%, not the thing itself.
 - n = 4 signers. ±7.3 on the best configuration is still wide.
 - Sections J and K predate this and understate every row.
+
+---
+
+## N. Full re-test with an adversarial audit
+
+*2026-09-02. Everything in §J–M changed either the features or the splits, so
+every earlier table is stale. This is the re-run, and it tries to break the
+result before reporting it.*
+
+### N.1 Why you should believe these numbers
+
+This project has shipped two spuriously excellent results — the double
+`generate_synthetic` run (+47 points) and the 100% split leak — both of which
+looked fine until the right thing was measured. So the audit runs first.
+
+| check | result |
+|---|---|
+| **A** duplicate clips across takes | 0 on both corpora |
+| **B** fold disjointness | asserted per fold, 0 takes on both sides |
+| **C** signer purity in LOSO | held-out signer contributes 0 training rows |
+| **D** synthetic parentage | 337/420 groups, 0 orphans |
+| **E** **label permutation** | **shuffled → 11.5 CV / 12.1 LOSO vs 14.3 chance** |
+| **F** signer-identity probe | features predict *who* at 96.9 / 99.8 macro-F1 |
+
+**E is the one that matters.** Labels are shuffled at take level and the whole
+pipeline re-run: if anything were carrying the answer through the split, the
+score would stay above chance. It lands *at or below* chance on both corpora.
+That is the check that would have caught both historical leaks, and it is now
+part of the harness rather than something to remember to do.
+
+**F is not a failure — it is the argument for LOSO.** The features identify the
+signer nearly perfectly. Any same-signer score therefore includes "can it
+recognise this person", which is not the task. See N.5.
+
+### N.2 The category winner flips between corpora
+
+Unseen-signer macro-F1, `bones` features, folds asserted disjoint:
+
+| corpus | best classical | best deep | winner |
+|---|---|---|---|
+| `khmer_var` (337 takes, **4 signers**) | rf **78.5** | bigru **85.1** | deep, +6.6 |
+| `khmer` (420 takes, **2 signers**) | rf **92.9** | bigru 83.8 | classical, +9.0 |
+
+Random forest is the best classical model on **both**, which is itself new —
+`gboost` and `logreg` led the old tables and are now 3rd and 4th.
+
+**Do not read the `khmer` row as strongly as the `khmer_var` row.** Two signers
+means LOSO is two folds, each training on one person. That is the thinnest
+possible cross-signer estimate and the 9-point gap is inside what a third
+signer could move. `khmer_var` at four folds is the more trustworthy of the two,
+and it says deep.
+
+This extends §G and §J.2 to a third axis: category rank does not transfer
+between corpora either.
+
+### N.3 Six deep architectures, not two
+
+`src/v2/model_rnn.py` adds GRU/LSTM and their bidirectional forms. A GRU had
+existed since the earliest comparison but was defined *inline inside*
+`algo_comparison/run_comparison.py`, where nothing else could import it — which
+is why the deep category had only ever been compared two-wide.
+
+`khmer_var`, ranked by unseen signer:
+
+| model | unseen | same | params |
+|---|---|---|---|
+| **bigru** | **85.1 ±8.3** | 94.1 | 327k |
+| bilstm | 84.7 ±6.3 | 94.7 | 435k |
+| **gru** | **83.7 ±8.2** | 93.2 | **164k** |
+| transformer | 81.8 ±10.2 | 93.2 | 2,201k |
+| tcn | 81.4 ±7.3 | 92.0 | 729k |
+| lstm | 79.4 ±4.2 | 93.8 | 217k |
+
+**Recurrent models beat both the TCN and the transformer**, which were the only
+two ever tested before. The transformer uses 13× the parameters of the GRU to
+finish 2 points behind it.
+
+**The bidirectional caveat is a deployment constraint, not a footnote.** A
+bidirectional model reads the clip backwards as well as forwards, which is fine
+for scoring a recorded take and impossible on a live rolling buffer — there is
+no future to read. So `bigru`'s 85.1 is an **offline** number. For Recognize
+mode the honest choice is `gru` at **83.7**, and the 1.4-point difference is
+what going live costs.
+
+### N.4 The classical side does not want temporal features
+
+Asked directly: does the classical path need the temporal fix the sequence
+models get for free? Adding per-third means and frame-to-frame velocity on top
+of `bones`:
+
+| | unseen signer, mean over 9 algorithms |
+|---|---|
+| bones | **70.4** |
+| bones + time | 68.8 |
+
+**It makes things worse**, on both corpora (71.5 → 69.7 on `khmer`). The
+features triple the dimension against 337 samples, and the summary statistics
+already capture most of what a per-third mean would say. Temporal structure is
+worth having — it is most of why the sequence models win — but the way to get
+it is a sequence model, not more columns.
+
+### N.5 Should leave-one-signer-out be the headline? Yes
+
+The signer probe settles it. The same features that classify signs predict
+**which of four people is signing at 96.9 macro-F1** (99.8 on `khmer`, where
+chance is 50). A same-signer split therefore lets a model answer partly by
+recognising the person, and the gap is not small:
+
+| | same signer | unseen signer | drop |
+|---|---|---|---|
+| bigru, `khmer_var` | 94.1 | 85.1 | **−9.0** |
+| rf, `khmer_var` | 93.2 | 78.5 | **−14.7** |
+| tree, `khmer_var` | 83.1 | 63.1 | −20.0 |
+
+**Report both, lead with unseen-signer.** Same-signer is not wrong, it answers
+a different question — "can it recognise signs from someone it has trained on"
+— which is a real product question for a personal recogniser and the wrong one
+for anything a stranger uses. Every table in §J–N gives both for that reason.
+
+### N.6 Custom algorithms work under all of this
+
+`custom_algos/bagging.py` is picked up automatically, gets the new default
+features with no edit, and places **2nd of nine** on `khmer_var` unseen-signer
+(75.6). A teammate adding a file needs to change nothing — the feature
+pipeline sits upstream of the registry, so `--features bones` applies to
+everyone's algorithm equally.
+
+The one thing that does **not** carry over automatically is a custom *deep*
+model: `run_baseline.py` and the registry are sklearn-shaped (`.fit`/`.predict`),
+and the six architectures above are wired in `train.py` instead. A teammate
+wanting to add an architecture has no drop-in folder for it. That is a real gap
+and it is not yet closed.
+
+### N.7 What is still not addressed
+
+- **n = 4 signers.** Every unseen-signer number here rests on four folds, and
+  the best models sit ±6–10 apart. §H item 6 has said a third signer was the
+  highest-value next step since before there was a fourth; a fifth and sixth
+  would do more for confidence than any further modelling.
+- Deep hyperparameters remain untuned; so do the classical ones.
+- `algo_comparison/results*/` and every `.docx` still hold pre-2026-09-02
+  numbers and now understate everything.

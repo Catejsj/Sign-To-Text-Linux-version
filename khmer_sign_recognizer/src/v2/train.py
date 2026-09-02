@@ -36,6 +36,10 @@ class TrainConfig:
     # an unseen signer. False reproduces pre-2026-09-02 behaviour, which fed
     # frozen fill values as if they were measurements. See src/v2/landmarks.py.
     presence: bool = True
+    # Parent-relative unit vectors, the only thing that tells the model the
+    # joints form a skeleton. Worth +8.4 macro-F1 on an unseen signer and
+    # halves the fold spread (13.5 -> 7.3). See src/v2/bones.py.
+    bones: bool = True
     held_out_signer: str | None = None   # enables leave-one-signer-out if set
     flip_labels: list[str] | None = None
     model_type: str = "tcn"              # "tcn" (recommended) or "transformer"
@@ -88,9 +92,9 @@ def train(cfg: TrainConfig) -> dict:
     flip_set = set(cfg.flip_labels or [])
     train_ds = SignDataset(train_s, label_to_idx, augment=True,
                            flip_labels=flip_set, seed=cfg.seed,
-                           presence=cfg.presence)
+                           presence=cfg.presence, bones=cfg.bones)
     val_ds = SignDataset(val_s, label_to_idx, augment=False,
-                         presence=cfg.presence)
+                         presence=cfg.presence, bones=cfg.bones)
 
     train_loader = DataLoader(train_ds, batch_size=cfg.batch_size,
                               shuffle=True, num_workers=0, drop_last=False)
@@ -174,7 +178,10 @@ def train(cfg: TrainConfig) -> dict:
         path = _save_bundle(
             model, label_to_idx,
             language=cfg.language or "all", algo=cfg.model_type,
-            feature_mode="sequence",        # the TCN eats the raw (60,144) clip
+            feature_mode="sequence",
+            # How the per-frame vector was built. Inference must rebuild it
+            # identically -- the width is 144 / 146 / 290 depending on these.
+            sequence_spec={"presence": cfg.presence, "bones": cfg.bones},
             labels_text=labels_text,
             meta={"accuracy": round(float(best_acc), 4),
                   "epochs": cfg.epochs, "held_out": cfg.held_out_signer,
@@ -210,6 +217,10 @@ def main() -> None:
     ap.add_argument("--data-root", default=str(root / "data" / "sequences_v2"))
     ap.add_argument("--save", action="store_true",
                     help="also write a bundle for the web app's Recognize mode")
+    ap.add_argument("--no-bones", action="store_true",
+                    help="drop the bone-direction channels. Only for "
+                         "reproducing older numbers — costs ~8 macro-F1 on an "
+                         "unseen signer.")
     ap.add_argument("--no-presence", action="store_true",
                     help="feed the raw (60,144) with fabricated hand "
                          "coordinates left in, as before 2026-09-02. Only for "
@@ -226,7 +237,7 @@ def main() -> None:
         val_frac=a.val_frac, seed=a.seed, device=a.device,
         held_out_signer=a.holdout, model_type=a.model,
         language=a.lang, save_bundle=a.save,
-        presence=not a.no_presence,
+        presence=not a.no_presence, bones=not a.no_bones,
     )
     out = train(cfg)
     print(f"\nbest val acc: {out['best_val_acc']:.3f}")

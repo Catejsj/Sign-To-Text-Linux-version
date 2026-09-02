@@ -735,3 +735,91 @@ migration — which is not a call to make from a measurement.
 
 Until then `landmarks.summary_valid` and `landmarks.deep_input` stay the
 defaults, and `canonical.py` is scaffolding with an honest sign on it.
+
+---
+
+## M. Bone vectors — telling the model it is looking at a body
+
+*2026-09-02. Code: `src/v2/bones.py`. The largest gain measured on this project.*
+
+### M.1 The gap
+
+Nothing in the pipeline ever said the joints form a skeleton.
+`nn.Linear(144, ...)` weights 144 slots with no notion that joint 7 hangs off
+joint 6; a decision tree splits one coordinate at a time. **Shuffle all 48
+joints consistently across the dataset and you train an identical model.** The
+anatomy had to be inferred from 337 examples.
+
+The field's answer is a graph network. The cheap one, tried here: replace a
+joint's position with its offset from its parent, so adjacency lives in the
+features — no new architecture, no schema change, and both categories gain at
+once.
+
+### M.2 Direction, not length — stated before measuring
+
+A bone vector carries direction **and** length, and length is body size, which
+is signer identity. The `clean` view divides by shoulder width, but "this
+person has long fingers" survives it. So the unit-normalised variant should be
+signer-invariant and the raw one should not.
+
+Confirmed:
+
+| khmer_var, macro-F1 | same signer | unseen signer |
+|---|---|---|
+| joints only (§K) | 79.1 | 55.4 |
+| + bone *with length* | 86.2 | 64.8 |
+| **+ bone direction (unit)** | **89.4** | **70.4** |
+| bone direction only, no joints | 84.0 | 64.8 |
+| TCN joints (§K) | 88.3 ±2.7 | 73.0 ±13.5 |
+| TCN + bone with length | 89.4 ±2.7 | 72.4 ±14.0 |
+| **TCN + bone direction** | **92.0 ±3.1** | **81.4 ±7.3** |
+
+Raw length **costs 6 points cross-signer against direction** while gaining
+almost nothing same-signer — the signature of a feature encoding *who* rather
+than *what*. The TCN's fold spread also halves, ±13.5 → ±7.3.
+
+Keeping joints alongside bones beats bones alone (89.4 vs 84.0): absolute
+position still says *where in the signing space* a sign happens, which
+direction cannot express.
+
+### M.3 Where the day ended up
+
+Unseen-signer macro-F1, the number that matters for a stranger at the camera:
+
+| | |
+|---|---|
+| start of day (leaky split, TCN) | 57.8 |
+| after the split fix + hand-fill fix (§C4, §K) | 73.0 |
+| **after bone directions** | **81.4** |
+
+**+23.6 points, entirely from fixing defects.** No new architecture, no extra
+recordings, no change to the stored data. Every number is 5-fold take-aware CV
+or 4-fold leave-one-signer-out with folds asserted disjoint.
+
+Best configuration now: **TCN + presence + bone directions, 92.0 same-signer /
+81.4 unseen-signer.**
+
+### M.4 What changed in the code
+
+- `src/v2/bones.py` — `PARENT` (the 48-joint skeleton), `bone_vectors`,
+  `summary_bones`, `deep_input_bones`.
+- `_featurize` gains `bones`; it is now `run_baseline.py`'s **default**.
+- `SignDataset(bones=True)` by default → `(60, 290)`.
+  `train.py --no-bones` restores the previous behaviour.
+- Bones are computed **after** augmentation, unlike presence — they are a
+  geometric function of the coordinates, so they must describe the clip the
+  model actually sees. Presence must be read *before*, because augmentation
+  noise would destroy the identical-joints signature it is derived from.
+- `save_bundle` now stores `sequence_spec={"presence", "bones"}` and the live
+  recognizer rebuilds its input from it. Without this the Recognize mode would
+  have fed a 144-wide vector to a 290-wide model. Bundles with no spec are read
+  as the old raw-144 recipe, so previously saved models still load — verified
+  on both existing bundles.
+
+### M.5 Limits
+
+- Bones encode **adjacency**, not the graph. A real ST-GCN also shares weights
+  across the skeleton and learns joint relationships beyond parent-child. This
+  is the cheap 80%, not the thing itself.
+- n = 4 signers. ±7.3 on the best configuration is still wide.
+- Sections J and K predate this and understate every row.

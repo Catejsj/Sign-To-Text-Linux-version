@@ -29,7 +29,7 @@ ROOT_DEFAULT = Path(__file__).resolve().parents[2] / "data" / "sequences_v2"
 
 VALID_SPLITS = ("train", "val", "test")
 VALID_SOURCE_MODES = ("real", "synthetic", "both")
-VALID_FEATURES = ("summary_valid", "summary", "flat")
+VALID_FEATURES = ("bones", "summary_valid", "summary", "flat")
 
 
 def split_of(signer_id: str) -> str:
@@ -43,27 +43,38 @@ def split_of(signer_id: str) -> str:
 def _featurize(clip: np.ndarray, feature_mode: str) -> np.ndarray:
     """(60, 48, 3) clip -> 1-D feature vector.
 
-    flat          : every number, 60*48*3 = 8640. Faithful but high-dim.
+    bones         : summary_valid + bone DIRECTIONS, 1158. The default.
+    summary_valid : summary, but each hand summarised only over the frames it
+                    was actually detected in, plus 6 presence features. 582.
     summary       : per-(joint,coord) mean/std/min/max over time, 576.
-    summary_valid : as `summary`, but each hand is summarised only over the
-                    frames it was actually detected in, plus 6 presence
-                    features. 582.
+    flat          : every number, 60*48*3 = 8640. Faithful but high-dim.
 
-    Prefer `summary_valid`. `summary` averages over frames where the tracker
-    had lost the hand and `fill_nans` had written a frozen copy of its last
-    position — and because that value is held for many frames it very often
-    becomes the min or the max, so the feature ends up recording where the hand
-    was last seen rather than anything about the sign. Hands are missing in
-    50.8% / 35.9% of frames (left / right) on `khmer_var`.
+    Measured over nine algorithms on khmer_var, macro-F1:
 
-    Measured over nine algorithms, `summary` -> `summary_valid`:
-    same-signer 70.0 -> 79.1, unseen-signer 45.4 -> 55.6. See
-    `src/v2/landmarks.py` and docs/project/PROBLEM_LOG.md K.
+                          same signer   unseen signer
+        summary               70.0          45.4
+        summary_valid         79.1          55.4
+        bones                 89.4          70.4
 
-    `summary` is kept so older results stay reproducible.
+    `summary` averages over frames where the tracker had lost the hand and
+    `fill_nans` had written a frozen copy of its last position; because that
+    value is held for many frames it very often becomes the min or the max, so
+    the feature records where the hand was last seen rather than anything about
+    the sign. Hands are missing in 50.8% / 35.9% of frames (left / right).
+
+    `bones` adds parent-relative unit vectors, which is the only thing in the
+    pipeline that tells a model the joints form a skeleton. Directions rather
+    than raw bones on purpose — length is body size, i.e. signer identity, and
+    keeping it costs ~6 points cross-signer.
+
+    See `src/v2/bones.py`, `src/v2/landmarks.py`, PROBLEM_LOG K and M. The
+    older modes are kept so previous results stay reproducible.
     """
     if feature_mode == "flat":
         return clip.reshape(-1).astype(np.float32)
+    if feature_mode == "bones":
+        from .bones import summary_bones
+        return summary_bones(clip)
     if feature_mode == "summary_valid":
         from .landmarks import summary_valid
         return summary_valid(clip)

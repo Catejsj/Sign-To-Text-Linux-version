@@ -55,14 +55,15 @@ def main() -> None:
                          "real=baseline, both=real+synthetic.")
     ap.add_argument("--eval-on", default="val", choices=["val", "test"],
                     help="which held-out split to score on (default: val)")
-    ap.add_argument("--features", default="summary_valid",
-                    choices=["summary_valid", "summary", "flat"],
-                    help="feature representation. summary_valid (default) "
-                         "summarises each hand only over the frames it was "
-                         "actually detected in; summary averages over frozen "
-                         "fill values too and costs ~9-10 macro-F1. Use "
-                         "summary only to reproduce results from before "
-                         "2026-09-02.")
+    ap.add_argument("--features", default="bones",
+                    choices=["bones", "summary_valid", "summary", "flat"],
+                    help="feature representation. bones (default) adds "
+                         "parent-relative unit vectors, the only thing that "
+                         "tells a model the joints form a skeleton; "
+                         "summary_valid drops that; summary additionally "
+                         "averages over frozen fill values. Measured "
+                         "unseen-signer macro-F1: 70.4 / 55.4 / 45.4. The "
+                         "older modes only reproduce pre-2026-09-02 numbers.")
     ap.add_argument("--holdout", default=None,
                     help="leave-one-signer-out: train on everyone EXCEPT this "
                          "signer, test on ONLY this signer. Use when your data "

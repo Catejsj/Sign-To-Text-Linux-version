@@ -44,8 +44,19 @@ def bundle_path(language: str, algo: str) -> Path:
 def save_bundle(model, label_to_idx: dict, language: str, algo: str,
                 feature_mode: str = "summary", view: View = View.CLEAN,
                 labels_text: Optional[dict] = None,
-                meta: Optional[dict] = None) -> Path:
-    """Persist a trained model plus everything needed to reproduce its input."""
+                meta: Optional[dict] = None,
+                sequence_spec: Optional[dict] = None) -> Path:
+    """Persist a trained model plus everything needed to reproduce its input.
+
+    `sequence_spec` applies only to `feature_mode="sequence"` (the deep models)
+    and records how the per-frame vector was assembled — `{"presence": bool,
+    "bones": bool}`. The width follows those flags (144 / 146 / 290), so
+    inference has to rebuild it exactly or the model is fed a differently
+    shaped, differently ordered vector.
+
+    Bundles saved before 2026-09-02 have no spec; they were trained on the raw
+    144 and are read back as `{"presence": False, "bones": False}`.
+    """
     import joblib
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,6 +68,7 @@ def save_bundle(model, label_to_idx: dict, language: str, algo: str,
         # slug -> display text (e.g. "sl_001" -> "ជម្រាបសួរ")
         "labels_text": labels_text or {},
         "feature_mode": feature_mode,
+        "sequence_spec": sequence_spec or {},
         "view": view.value if isinstance(view, View) else str(view),
         "meta": {"language": language, "algo": algo,
                  "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -226,12 +238,26 @@ class LiveRecognizer:
 
         model = self.bundle["model"]
 
-        # Deep models (TCN/Transformer) take the raw sequence, not summary stats.
+        # Deep models (TCN/Transformer) take the sequence, not summary stats.
+        # The per-frame width depends on how the model was trained, so rebuild
+        # it from the bundle's own spec rather than assuming the raw 144.
         if self.bundle.get("feature_mode") == "sequence":
             import torch
+            spec = self.bundle.get("sequence_spec") or {}
+            seq = clip.reshape(SEQ_LEN, -1)
+            if spec.get("presence"):
+                from .landmarks import hand_presence, zero_missing
+                pres = hand_presence(clip)
+                seq = np.concatenate(
+                    [zero_missing(clip, pres).reshape(SEQ_LEN, -1), pres],
+                    axis=1)
+            if spec.get("bones"):
+                from .bones import bone_vectors
+                seq = np.concatenate(
+                    [seq, bone_vectors(clip, unit=True).reshape(SEQ_LEN, -1)],
+                    axis=1)
             with torch.no_grad():
-                x = torch.from_numpy(
-                    clip.reshape(SEQ_LEN, -1)[None, ...].astype(np.float32))
+                x = torch.from_numpy(seq[None, ...].astype(np.float32))
                 logits = model(x)[0]
                 proba = torch.softmax(logits, dim=-1).numpy()
             idx = int(np.argmax(proba))

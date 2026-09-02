@@ -132,6 +132,7 @@ class SignDataset(Dataset):
         flip_labels: Optional[set[str]] = None,
         seed: int = 0,
         presence: bool = True,
+        bones: bool = True,
     ):
         """`presence=True` feeds (60, 146): fabricated hand coordinates zeroed,
         plus two channels saying whether each hand was really detected.
@@ -150,12 +151,21 @@ class SignDataset(Dataset):
         self.augment = augment
         self.flip_labels = flip_labels or set()
         self.presence = presence
+        self.bones = bones
         self.rng = np.random.default_rng(seed)
 
     @property
     def n_features(self) -> int:
-        """What to pass as the model's `in_features`."""
-        return NUM_JOINTS * NUM_COORDS + (2 if self.presence else 0)
+        """What to pass as the model's `in_features`.
+
+        144 coordinates, +2 presence channels, +144 bone directions.
+        """
+        n = NUM_JOINTS * NUM_COORDS
+        if self.presence:
+            n += 2
+        if self.bones:
+            n += NUM_JOINTS * NUM_COORDS
+        return n
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -180,6 +190,14 @@ class SignDataset(Dataset):
         feat = clip.reshape(SEQ_LEN, -1)                       # (60, 144)
         if self.presence:
             feat = np.concatenate([feat, pres], axis=1)        # (60, 146)
+        if self.bones:
+            # Computed AFTER augmentation, unlike presence: bones are a
+            # geometric function of the coordinates, so they must describe the
+            # clip the model actually sees, not the one before it was warped.
+            from .bones import bone_vectors
+            feat = np.concatenate(
+                [feat, bone_vectors(clip, unit=True).reshape(SEQ_LEN, -1)],
+                axis=1)                                        # (60, 290)
         y = self.label_to_idx[meta.label]
         return (torch.from_numpy(np.ascontiguousarray(feat, dtype=np.float32)),
                 torch.tensor(y, dtype=torch.long))

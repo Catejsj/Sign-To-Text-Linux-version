@@ -14,7 +14,7 @@ except ImportError:
     _TORCH = False
     Dataset = object  # type: ignore
 
-from .schema import SampleMeta, Source, SEQ_LEN, NUM_JOINTS, NUM_COORDS
+from .schema import SampleMeta, Source, View, SEQ_LEN, NUM_JOINTS, NUM_COORDS
 from .augment import augment_clip
 
 
@@ -56,18 +56,70 @@ def split_leave_one_signer_out(
     return train, val
 
 
+def synthetic_ratios(
+    samples: list[tuple[Path, SampleMeta]],
+) -> dict[tuple[str, str], int]:
+    """How many synthetic copies exist per real take, per (signer, label).
+
+    Measured rather than assumed: it differs between people, and hard-coding it
+    is what let a double `generate_synthetic.py` run group children under the
+    wrong parent (see docs/project/PROBLEM_LOG.md §C2).
+    """
+    real: dict = {}
+    synth: dict = {}
+    for _p, m in samples:
+        if m.view is not View.CLEAN:
+            continue
+        key = (m.signer_id, m.label)
+        d = real if m.source is Source.REAL else synth
+        d[key] = d.get(key, 0) + 1
+    return {k: max(1, synth.get(k, 0) // n) for k, n in real.items() if n}
+
+
+def take_id(meta: SampleMeta, ratios: dict[tuple[str, str], int]) -> tuple:
+    """The recording a sample came from.
+
+    A take produces several files: a clean view and a noisy view of the same
+    movement, plus a synthetic copy of each per generated body. They are all
+    the same two seconds of one person signing, so they must never be split
+    across train and eval.
+    """
+    if meta.source is Source.REAL:
+        variant = meta.variant
+    else:
+        variant = meta.variant // ratios.get((meta.signer_id, meta.label), 1)
+    return (meta.signer_id, meta.label, variant)
+
+
 def split_random(
     samples: list[tuple[Path, SampleMeta]],
     val_frac: float = 0.15,
     seed: int = 42,
 ) -> tuple[list, list]:
+    """Hold out a fraction of TAKES — not of samples.
+
+    Splitting by sample leaks completely. Every take contributes a clean view,
+    a noisy view and several synthetic copies; shuffling the flat list puts
+    some of those in train and the rest in val, so the model is scored on
+    warped twins of clips it has just memorised. Measured on the real corpora
+    before this was fixed: 100% of validation samples had their own take in
+    training (docs/project/PROBLEM_LOG.md §C4).
+
+    Grouping by take makes the number mean what it says. It also drops it
+    sharply, which is the point.
+    """
+    ratios = synthetic_ratios(samples)
+    takes = sorted({take_id(m, ratios) for _p, m in samples})
     rng = np.random.default_rng(seed)
-    idx = np.arange(len(samples))
-    rng.shuffle(idx)
-    n_val = max(1, int(len(samples) * val_frac))
-    val_idx = set(idx[:n_val].tolist())
-    train = [s for i, s in enumerate(samples) if i not in val_idx]
-    val = [s for i, s in enumerate(samples) if i in val_idx]
+    order = np.arange(len(takes))
+    rng.shuffle(order)
+    n_val = max(1, int(len(takes) * val_frac))
+    held = {takes[i] for i in order[:n_val].tolist()}
+
+    train, val = [], []
+    for pair in samples:
+        _p, meta = pair
+        (val if take_id(meta, ratios) in held else train).append(pair)
     return train, val
 
 

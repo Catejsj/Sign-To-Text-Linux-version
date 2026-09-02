@@ -200,10 +200,29 @@ and **all synthetic for that label was silently dropped from training** —
 **Fix:** regenerate synthetic after deletions (`generate_synthetic.py --clean`).
 Detectable via the ratio check in `_group_map`.
 
-### C4. The deep-learning path had the same leak **[OPEN]**
-`split_random` in `src/v2/train.py` splits **samples**, not takes, so synthetic
-copies straddle train/val. This is why the TCN reported a perfect validation
-score. The classical path is fixed; the deep path is not.
+### C4. The deep-learning path had the same leak **[FIXED 2026-09-02]**
+`split_random` in `src/v2/dataset.py` shuffled the flat sample list, so every
+take's clean view, noisy view and synthetic copies were dealt independently
+across train and val. This is why the TCN reported a perfect validation score.
+
+**Measured before the fix**, holding out 15% at seed 42:
+
+| corpus | val samples | with their own take also in train |
+|---|---|---|
+| `khmer_var` | 707 | **707 (100%)** |
+| `khmer` | 882 | **882 (100%)** |
+
+Not a partial leak — total. Every validation clip was a different view or a
+warped copy of something in the training set, so no deep-model validation
+number published before this date means anything.
+
+**Fix:** `split_random` now holds out **takes**. `synthetic_ratios()` measures
+the synth:real ratio per (signer, label) rather than assuming it — the same
+defence C2 and C3 needed — and `take_id()` maps any sample back to the
+recording it came from. Both are exported for reuse. After the fix: 0 leaked
+samples, train/val take sets disjoint, all 7 classes on both sides.
+
+The honest numbers this unlocked are in §J.
 
 ### C5. `train.py` had no CLI and trained on all languages **[FIXED]**
 It required editing a config dataclass, and `discover_samples` was called with
@@ -400,8 +419,11 @@ Related measurements:
 
 ## H. Open items
 
-1. **C4** — take-aware splitting not applied to the deep-model path.
-2. **D3** — hand detection ~57%; limits fine-handshape vocabulary.
+1. ~~**C4** — take-aware splitting not applied to the deep-model path.~~
+   **Fixed 2026-09-02**; see §C4 and §J.
+2. **D3** — hand detection ~57%; limits fine-handshape vocabulary. Now known to
+   be the model's largest dependency: §J.4 measures 92.3% of feature importance
+   on hand joints, 40.6% on hand *depth* alone.
 3. **E3** — live flicker reduced but not eliminated (0.90 changes/sign).
 4. **F2** — `scale` vs `ik` retargeting still undecided; needs the multi-signer
    comparison now that a second signer exists.
@@ -426,3 +448,108 @@ Related measurements:
 8. Second signer recorded → cross-signer evaluation → the central finding (§G)
 9. Algorithm comparison studies (own landmarks + Sign Language MNIST)
 10. Documentation: findings, project brief, Windows setup, this log
+
+11. Deep-path leak found and closed; classical vs deep compared under one
+    protocol (§C4, §J)
+
+---
+
+## J. Classical vs deep learning, measured under one protocol
+
+*2026-09-02. All numbers: 5-fold **take-aware** cross-validation
+(`StratifiedGroupKFold` on take id), evaluated on **real clean takes only**,
+folds asserted disjoint before use. Classical models get the 576 `summary`
+features; deep models get the raw `(60, 144)` sequence. Same folds for both, so
+any difference belongs to the models and not to the scoring.*
+
+### J.1 The comparison
+
+| corpus | best classical | best deep | verdict |
+|---|---|---|---|
+| `khmer_var` real | gboost **80.1** ±5.6 | tcn **85.9** ±2.9 | deep, +5.8 |
+| `khmer_var` +synth | gboost **78.6** ±3.1 | transformer **86.8** ±1.0 | deep, +8.2 |
+| `khmer` real | logreg **96.4** ±2.9 | tcn **98.3** ±1.8 | tie (gap 1.9 < spread 2.4) |
+| `khmer` +synth | logreg **97.1** ±1.0 | tcn **98.3** ±1.8 | tie (gap 1.2 < spread 1.4) |
+
+**Deep learning's advantage is a function of how hard the corpus is.** On
+`khmer` — 30 takes per sign, 2 signers — every method saturates near 96–98% and
+the two categories are indistinguishable. On `khmer_var` — 12 takes per sign,
+4 signers, deliberate lighting/distance/position variation — deep wins clearly.
+Reporting only the easy corpus would have shown deep learning as unnecessary.
+
+Best configuration overall: **transformer + synthetic on `khmer_var`,
+86.8 ±1.0** — the tightest spread of any model measured, on the hardest corpus.
+
+### J.2 Within-category rank does not transfer either
+
+`logreg` is 1st on `khmer` and 6th on `khmer_var`; `gboost` is 1st on
+`khmer_var` and 3rd on `khmer`; `lda` is 4th on `khmer` real and **last** once
+synthetic is added. This extends §G's cross-dataset instability to a second
+axis: the same dataset, a different recording protocol.
+
+### J.3 Synthetic data helps the highest-capacity model most
+
+| model | real | +synthetic | Δ |
+|---|---|---|---|
+| transformer | 84.4 ±5.3 | **86.8 ±1.0** | **+2.4** |
+| tcn | 85.9 ±2.9 | 85.4 ±2.9 | −0.5 |
+| gboost | 80.1 | 78.6 | −1.5 |
+| lda | 71.9 | 42.7 | **−29.2** |
+
+Consistent with §G: the augmentation varies body geometry, and the `clean`
+normalisation already divides body scale out, so a model reading order-invariant
+summary statistics has little left to gain. A high-capacity sequence model
+trained on 7× the data does gain — and its fold-to-fold spread collapses from
+±5.3 to ±1.0, which matters more than the mean.
+
+**LDA's collapse is reproducible and severe** (also 71.0 → 40.8 same-signer,
+43.5 → 24.8 cross-signer). Near-duplicate rows destabilise the covariance
+inversion. Untested fix: `solver="lsqr", shrinkage="auto"`.
+
+### J.4 Where the signal lives
+
+Random-forest importance over the 576 `summary` features:
+
+| by body part | | by statistic | | by coordinate | |
+|---|---|---|---|---|---|
+| left hand | 49.9% | max | 36.4% | z | **40.6%** |
+| right hand | 42.4% | min | 22.4% | x | 36.5% |
+| body | **7.6%** | mean | 20.8% | y | 22.9% |
+| | | std | 20.3% | | |
+
+**Hands carry 92.3% of the signal.** Body `z` is identically zero across all
+121,320 body-joint values (§H item 7), so the entire 40.6% z-importance sits on
+*hand* depth — a monocular estimate, the least reliable channel in the
+representation. The model's largest dependency is its weakest input, which is
+§D3 restated as a measurement.
+
+Half of all importance is in 112 of 576 features (19.4%).
+
+### J.5 Order-invariance is a real defect, and only partly fixable
+
+`summary` is mean/std/min/max over 60 frames: reverse a clip and the feature
+vector is unchanged. Two signs visiting the same positions in a different order
+are the same point in feature space.
+
+The worst confusion is ជម្រាប់សួរ ↔ អរគុណ — 19 of 337 takes, with ជម្រាប់សួរ
+recall at 54.2% against ≥72.9% for every other sign. Adding temporal features
+(per-third means + frame-to-frame velocity) cut those pair errors from **19 to
+13** and lifted recall to 60.4% / 81.2%.
+
+But averaged over all nine classical algorithms the same features are worth
+only **+0.7**. The order-invariance is genuinely part of the problem and
+bolting time back on is genuinely a partial fix — the rest of the gap is what
+the sequence models pick up, which is why they win by 5.8–8.2 on this corpus.
+
+### J.6 The old split protocol understated its own uncertainty
+
+`run_var_experiment.py` averages 8 independent random 75/25 take-aware draws.
+Against 5-fold CV on the same data: **rankings are identical**, but
+
+- 30 of 337 takes are never tested under the random draws; the rest are tested
+  0–7 times. Under CV every take is tested exactly once.
+- reported spread roughly **doubles** (rf ±2.5 → ±5.8, bagging ±3.1 → ±6.6,
+  knn ±5.1 → ±7.9). Overlapping draws are correlated, so their variance is not
+  an honest estimate of it.
+
+The ± values in `Task_A_Report.docx` are therefore too tight. The means stand.

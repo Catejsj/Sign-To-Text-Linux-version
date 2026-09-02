@@ -1,6 +1,6 @@
 # Documentation index
 
-Twenty-one documents, in five folders. Find your row in the first table and go
+Twenty-two documents, in five folders. Find your row in the first table and go
 there directly.
 
 | I want to… | Read |
@@ -12,6 +12,8 @@ there directly.
 | explain the results to a teacher | [results/TASK_A_FOR_TEACHER.md](results/TASK_A_FOR_TEACHER.md) |
 | know what synthetic data actually does | [reference/SYNTHETIC_RETARGETING.md](reference/SYNTHETIC_RETARGETING.md) |
 | find out why something is built the way it is | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) |
+| **write the paper** | [project/PAPER_DRAFT.md](project/PAPER_DRAFT.md) |
+| know the latest measured results | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) §J |
 
 ---
 
@@ -68,8 +70,9 @@ Planning and history.
 
 | | |
 |---|---|
+| [PAPER_DRAFT.md](project/PAPER_DRAFT.md) | Research-paper content draft — the argument, every table with the file it came from, and the gaps that still block writing. |
 | [TIMELINE.md](project/TIMELINE.md) | The two-year plan; every milestone has a hard deliverable. |
-| [PROBLEM_LOG.md](project/PROBLEM_LOG.md) | Every problem hit and every change made, with cause, fix and evidence. The most useful file when picking work back up. |
+| [PROBLEM_LOG.md](project/PROBLEM_LOG.md) | Every problem hit and every change made, with cause, fix and evidence. The most useful file when picking work back up. **§J is the current results table.** |
 | [PROJECT_BRIEF_FOR_AI.md](project/PROJECT_BRIEF_FOR_AI.md) | Self-contained project description to paste into an AI assistant for literature work. |
 | [PRESENTATION_TERM1.md](project/PRESENTATION_TERM1.md) | Slide content for the term-1 review. ⚠️ Historical — the status claims are from before the web app and the experiments landed. |
 

@@ -13,7 +13,7 @@ there directly.
 | know what synthetic data actually does | [reference/SYNTHETIC_RETARGETING.md](reference/SYNTHETIC_RETARGETING.md) |
 | find out why something is built the way it is | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) |
 | **write the paper** | [project/PAPER_DRAFT.md](project/PAPER_DRAFT.md) |
-| know the latest measured results | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) §J |
+| **know the latest measured results** | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) §J–N, and `Task_A_Report.docx` |
 
 ---
 
@@ -57,6 +57,7 @@ What we measured.
 
 | | |
 |---|---|
+| **Task_A_Report.docx** | `algo_comparison/results_khmer_var_taskA/` — the current report: all five questions, 15 models, the audit. Regenerate with `run_task_a.py` then `make_task_a_report.py`. |
 | [TASK_A_FOR_TEACHER.md](results/TASK_A_FOR_TEACHER.md) | The variation experiment in the order you would say it out loud. Start here. |
 | [TASK_A_EXPLAINED.md](results/TASK_A_EXPLAINED.md) | `Task_A_Report.docx` walked through section by section. |
 | [SYNTHETIC_EXPLAINED.md](results/SYNTHETIC_EXPLAINED.md) | The real vs real+synthetic comparison, and why the gain is only about 2 points. |
@@ -72,7 +73,7 @@ Planning and history.
 |---|---|
 | [PAPER_DRAFT.md](project/PAPER_DRAFT.md) | Research-paper content draft — the argument, every table with the file it came from, and the gaps that still block writing. |
 | [TIMELINE.md](project/TIMELINE.md) | The two-year plan; every milestone has a hard deliverable. |
-| [PROBLEM_LOG.md](project/PROBLEM_LOG.md) | Every problem hit and every change made, with cause, fix and evidence. The most useful file when picking work back up. **§J is the current results table.** |
+| [PROBLEM_LOG.md](project/PROBLEM_LOG.md) | Every problem hit and every change made, with cause, fix and evidence. The most useful file when picking work back up. **§J–N are the current results.** |
 | [PROJECT_BRIEF_FOR_AI.md](project/PROJECT_BRIEF_FOR_AI.md) | Self-contained project description to paste into an AI assistant for literature work. |
 | [PRESENTATION_TERM1.md](project/PRESENTATION_TERM1.md) | Slide content for the term-1 review. ⚠️ Historical — the status claims are from before the web app and the experiments landed. |
 

@@ -218,3 +218,27 @@ Class IDs are listed in `data/external/SignList_ClassId_TR_EN.csv`
 | `onnxruntime` falls back to CPU | the GPU package is missing or shadowed — see [setup/LINUX_REBUILD.md](../setup/LINUX_REBUILD.md) §3 |
 | a teammate's takes don't appear after import | they uploaded the folder rather than its contents; re-run with `--dry-run` to see what was found |
 | scores jumped a suspicious amount | check the synthetic ratio with `verify_pool.py` — a `generate_synthetic.py` run without `--clean` is the usual cause |
+
+---
+
+## 11. The Task A report
+
+One command computes every number, a second writes the document.
+
+```bash
+python algo_comparison/run_task_a.py
+python algo_comparison/make_task_a_report.py
+```
+
+Output lands in `algo_comparison/results_khmer_var_taskA/` — `Task_A_Report.docx`,
+six charts, and `results.json` with every figure the report quotes.
+
+| flag | |
+|---|---|
+| `--lang khmer` | run it on the other corpus instead |
+| `--quick` | classical models only, about a minute |
+| `--charts-only` | redraw the charts from the existing `results.json`, seconds |
+
+The run takes roughly 6 minutes with a GPU: 9 classical algorithms across 3
+feature sets, 6 neural networks, and the audit. Every seed is fixed, so two
+runs on the same data give the same numbers.

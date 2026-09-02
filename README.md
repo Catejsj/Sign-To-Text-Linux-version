@@ -62,14 +62,16 @@ Full write-up: [`docs/results/`](khmer_sign_recognizer/docs/results/).
 
 | trained → tested | macro-F1 |
 |---|---|
-| bright → dim | **78.6** |
-| middle/left → right | 66.9 |
-| near → far | **66.3** |
+| bright → dim | **82.0** |
+| middle/left → right | 79.3 |
+| near → far | **74.9** |
 
-With a *single* signer, changing the lighting was catastrophic (23%). With
-four people in four rooms it barely registers. **Recruiting more signers fixed
-the problem that tighter lighting control was supposed to fix** — and camera
-distance is now the expensive variable, not light.
+*Real takes only. `algo_comparison/results_khmer_var/results.json`.*
+
+With a *single* signer, changing the lighting was catastrophic. With four
+people in four rooms it costs a couple of points. **Recruiting more signers
+fixed the problem that tighter lighting control was supposed to fix** — and
+camera distance, not light, is now the expensive variable.
 
 ### Synthetic data helps, a little
 

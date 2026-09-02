@@ -658,3 +658,80 @@ reproducible.
   lighting it belongs in the recording guide, and is cheaper than any modelling
   change.
 - **§J's tables predate this fix** and understate every configuration.
+
+---
+
+## L. The canonicalizer — built, measured, not adopted
+
+*2026-09-02. Code: `src/v2/canonical.py`. A negative result, kept because the
+reasoning is reusable.*
+
+### L.1 What was tried
+
+A single interface layer — anything in, `(T, 48, 4)` out — carrying **per-joint**
+visibility rather than K's per-hand pair, with a gap policy that interpolates
+short dropouts and zeroes long ones, feeding a 738-feature classical vector and
+a `(60, 192)` deep tensor.
+
+### L.2 It did not beat the simpler fix
+
+| khmer_var, macro-F1 | same signer | unseen signer |
+|---|---|---|
+| `summary` (original) | 70.0 | 45.4 |
+| **`summary_valid` (§K)** | **79.1** | **55.4** |
+| `canonical.summary` | 77.8 | 52.0 |
+| TCN raw (60,144) | 85.4 | 57.8 |
+| **TCN presence (60,146) (§K)** | **87.7** | 73.0 |
+| TCN canonical (60,192) | 85.6 | 73.9 |
+
+Classical is 1.3 / 3.4 points **worse**. The deep difference (−2.1 same-signer,
++0.9 unseen) sits well inside a ±15 fold spread and decides nothing.
+
+### L.3 Why — two measurements, both worth keeping
+
+**The gap policy is inert on this data.** Hand-dropout episode lengths across
+200 takes:
+
+| gap | share |
+|---|---|
+| 2–3 frames | 1.2% |
+| 4–8 | 2.4% |
+| 9–20 | 33.4% |
+| 21–59 | 45.9% |
+| all 60 | 17.2% |
+
+Median **25 of 60 frames**, and **100% of episodes touch a clip edge** — the
+hands are not up yet when a take starts. Only **0.1% of missing frames** sit in
+gaps short enough to interpolate, so the policy reduces to zeroing, which §K
+already did. Interpolating a 25-frame hole would be inventing half a sign.
+
+**Per-joint visibility is not recoverable from `(T, 48, 3)`.** MediaPipe returns
+a whole hand or nothing — there is no per-joint filter at `capture.py:437` — so
+reconstruction cannot exceed per-hand resolution. The extra 46 channels carry
+nothing the 2-channel version lacked, and on 337 samples the added
+dimensionality costs the classical models 1–3 points.
+
+**The lesson:** the design was sound and the data did not support it. Both
+reasons are properties of *this corpus* — a longer take, or a tracker that
+degrades per-finger, would change both.
+
+### L.4 What was adopted
+
+`normalize._pt` now returns visibility, and `frame_from_landmarks` takes
+`with_visibility=True` for `(48, 4)`. `capture.py` has always computed a real
+per-joint confidence (`sc[idx]` line 299, `lm.visibility` line 544) and used it
+to *delete* joints; `_pt` then discarded it one step later. It is now plumbed.
+
+**The default is still `(48, 3)` and nothing about the stored contract changed.**
+Eight people are recording against that shape, and `schema.py`, `SignDataset`
+and `verify_pool.py` all assert it. Switching is a migration, not a flag flip.
+
+### L.5 The decision this leaves
+
+Storing real per-joint confidence is the only thing that would make
+`canonical.py` worth adopting, and it only helps **takes recorded after** the
+change. The question is whether that is worth a mid-collection schema
+migration — which is not a call to make from a measurement.
+
+Until then `landmarks.summary_valid` and `landmarks.deep_input` stay the
+defaults, and `canonical.py` is scaffolding with an honest sign on it.

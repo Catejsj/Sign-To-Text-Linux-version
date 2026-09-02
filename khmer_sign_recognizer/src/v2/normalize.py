@@ -22,13 +22,27 @@ BODY_KEYS = [
 
 
 def _pt(d: dict, key: str) -> Optional[np.ndarray]:
+    """-> [x, y, z, visibility], or None if the joint is absent.
+
+    `capture.py` already attaches a real per-joint confidence to every landmark
+    it emits — `sc[idx]` from RTMPose and `lm.visibility` from MediaPipe — and
+    uses it to DROP joints below threshold. Until 2026-09-02 this function read
+    x/y/z and discarded it, so the one fact explaining why a joint was missing
+    was thrown away immediately after being computed. Downstream, `fill_nans`
+    then replaced the hole with a frozen copy of the last position, which no
+    model could distinguish from a measurement.
+
+    Landmarks with no confidence attached default to 1.0 — an imported dataset
+    that never had one should not be treated as invisible.
+    """
     if key in d:
         p = d[key]
     elif key.isdigit() and int(key) in d:
         p = d[int(key)]
     else:
         return None
-    return np.array([p["x"], p["y"], p.get("z", 0.0)], dtype=np.float32)
+    return np.array([p["x"], p["y"], p.get("z", 0.0),
+                     p.get("visibility", 1.0)], dtype=np.float32)
 
 
 def frame_from_landmarks(
@@ -37,25 +51,46 @@ def frame_from_landmarks(
     right_hand: Optional[dict],
     image_width: int = 640,
     image_height: int = 480,
+    with_visibility: bool = False,
 ) -> np.ndarray:
-    """Merge RTMPose body (pixel space) + MediaPipe hands ([0,1]) into a
-    single (48, 3) array, all in normalized [0, 1] image space."""
-    out = np.full((NUM_JOINTS, NUM_COORDS), np.nan, dtype=np.float32)
+    """Merge RTMPose body (pixel space) + MediaPipe hands ([0,1]) into one
+    (48, 3) array in normalized [0, 1] image space.
+
+    `with_visibility=True` returns (48, 4) instead, carrying the tracker's own
+    per-joint confidence in the fourth column and 0.0 for joints it did not
+    return at all. That is strictly more information — an absent joint is
+    currently NaN, which `fill_nans` erases a step later.
+
+    **Default is False and the stored contract is still (60, 48, 3).** Eight
+    people are recording against that shape right now, and `schema.py`,
+    `SignDataset` and `verify_pool.py` all assert it. Switching the default is
+    a migration, not a flag flip; `canonical.py` is the consumer that would
+    make it worth doing, and it does not yet beat the cheaper reconstruction.
+    """
+    cols = NUM_COORDS + 1 if with_visibility else NUM_COORDS
+    out = np.full((NUM_JOINTS, cols), np.nan, dtype=np.float32)
+    if with_visibility:
+        out[:, NUM_COORDS] = 0.0        # not returned by the tracker = unseen
     w, h = float(image_width), float(image_height)
+
+    def put(slot: int, pt: np.ndarray, scale: bool) -> None:
+        out[slot, 0] = pt[0] / w if scale else pt[0]
+        out[slot, 1] = pt[1] / h if scale else pt[1]
+        out[slot, 2] = pt[2]
+        if with_visibility:
+            out[slot, NUM_COORDS] = pt[3]
+
     for i, k in enumerate(BODY_KEYS):
         pt = _pt(body, k)
         if pt is not None:
-            out[i] = [pt[0] / w, pt[1] / h, pt[2]]
-    if left_hand:
+            put(i, pt, scale=True)
+    for base, hand in ((6, left_hand), (27, right_hand)):
+        if not hand:
+            continue
         for i in range(21):
-            pt = _pt(left_hand, str(i))
+            pt = _pt(hand, str(i))
             if pt is not None:
-                out[6 + i] = pt
-    if right_hand:
-        for i in range(21):
-            pt = _pt(right_hand, str(i))
-            if pt is not None:
-                out[27 + i] = pt
+                put(base + i, pt, scale=False)
     return out
 
 

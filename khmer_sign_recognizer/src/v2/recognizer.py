@@ -166,6 +166,12 @@ class LiveRecognizer:
     # tuned by replaying real takes: 6 idle frames avoids committing on a brief
     # mid-sign pause, without making the answer feel slow
     idle_frames_to_commit: int = 6
+    # How long a pause must last before an unfinished segment is abandoned.
+    # Kept well above idle_frames_to_commit: a sign that holds a handshape
+    # mid-gesture pauses for longer than the commit delay, and discarding at
+    # the commit delay destroyed the segment before it was long enough to
+    # classify. ~0.8s at 30fps.
+    idle_frames_to_reset: int = 24
 
     frames: deque = field(init=False)
     _votes: deque = field(init=False)
@@ -323,6 +329,14 @@ class LiveRecognizer:
         # holds a partial sign.
         if not moving:
             self._idle += 1
+
+            # Hold frames are deliberately NOT added to the segment. It looks
+            # like they should be — a held handshape is part of the sign — but
+            # padding the segment with repeated still frames makes the clip
+            # mostly static once it is resampled to 60 frames, and that costs
+            # more than it gains. Measured on real takes, absorbing hold
+            # frames: khmer 99.0 -> 97.6 -> 94.4 macro-F1 as the cap rises from
+            # 0 to 4 to 8. Monotonic, with no sweet spot.
             if (self._segment and self._idle >= self.idle_frames_to_commit
                     and len(self._segment) >= self.segment_min_frames):
                 got = self._classify(self._segment, allow_none=False)
@@ -333,7 +347,13 @@ class LiveRecognizer:
                     self._committed = Prediction(label, text, conf, stable=True,
                                                  moving=False, committed=True)
                     return self._committed
-            if self._idle >= self.idle_frames_to_commit:
+
+            # Only give up on a segment after a pause long enough to mean the
+            # person has stopped signing. Discarding at `idle_frames_to_commit`
+            # threw away every sign containing a hold longer than 0.2s, which
+            # was 50 of 337 recorded takes — they never produced an answer at
+            # all. See docs/project/PROBLEM_LOG.md O.
+            if self._idle >= self.idle_frames_to_reset:
                 self._segment = []
             # between signs: keep showing the last committed answer
             if self._committed is not None:

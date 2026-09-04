@@ -616,6 +616,10 @@
       word-break: break-word; max-width: 100%;
     }
     .predict-word.idle { color: var(--text-faint); opacity: .55; }
+    /* Mid-sign guess from the sliding window: 83% accurate against 94% for the
+       committed answer, so it must never look like a final answer. Muted, no
+       accent colour, no landing animation. */
+    .predict-word.tentative { color: var(--text-secondary); opacity: .75; }
     .predict-word.stable {
       color: var(--primary);
       animation: word-land .42s var(--ease);
@@ -1180,9 +1184,14 @@
         w.textContent = '—'; w.className = 'predict-word idle';
         $('conf-fill').style.width = '0%'; $('predict-conf').textContent = '0%';
       } else {
-        st.textContent = p.stable ? 'Recognized' : 'Reading…';
+        // Mid-sign. This is the sliding window, which holds a PARTIAL sign the
+        // model never trained on — measured at 83% against 94% for the answer
+        // committed when the sign ends. It used to say "Recognized" and be
+        // styled exactly like the committed answer, so a guess was
+        // indistinguishable from an answer. It is now always tentative.
+        st.textContent = 'Reading…';
         w.textContent = p.text || '?';
-        w.className = 'predict-word' + (p.stable ? ' stable' : '');
+        w.className = 'predict-word tentative';
         const pct = Math.round((p.confidence || 0) * 100);
         $('conf-fill').style.width = pct + '%';
         $('predict-conf').textContent = pct + '%';

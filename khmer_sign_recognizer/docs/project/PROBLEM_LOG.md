@@ -965,3 +965,115 @@ and it is not yet closed.
 - Deep hyperparameters remain untuned; so do the classical ones.
 - `algo_comparison/results*/` and every `.docx` still hold pre-2026-09-02
   numbers and now understate everything.
+
+---
+
+## O. Live recognition felt worse than the offline scores — why
+
+*2026-09-04. Reported from real use: dad/mum and the two greetings confused.
+Four separate causes, three of them fixable.*
+
+### O.1 First, a caveat on the numbers in this section
+
+Every saved bundle was trained with **no held-out signer**, so replaying the
+corpus through one tests it largely on its own training data. The absolute
+figures below are therefore inflated and are **not** accuracy claims.
+
+What they *do* support is the comparison between paths, because all three use
+the same model on the same data. That comparison is the point of the section.
+
+### O.2 The models in `models/recognizers/` were stale or undertrained
+
+| bundle | state |
+|---|---|
+| `khmer__tcn` (Aug 4) | pre-fix, `sequence_spec=None`, **saved accuracy `1.0`** — the §C4 split leak |
+| `khmer__rf` (Aug 6) | pre-fix, trained on `summary` features that average over fabricated hand positions |
+| `khmer_var__tcn`, `khmer_var__gru` | 10-epoch smoke tests left behind by a verification run using `--save` |
+
+**The old TCN reproduces the reported symptom exactly.** Replaying all 420
+`khmer` takes through the live path:
+
+    ប៉ា → ម៉ាក់              12 errors
+    ជម្រាប់សួរ → អរគុណ        6 errors
+
+A current GRU on the same corpus gives 3 for the worst pair. Nothing else in
+the folder produced that pattern. **Fix:** every bundle retrained with current
+code; the folder now holds gru/tcn/rf per corpus, all dated 2026-09-04.
+
+### O.3 The sliding window is far worse than the committed answer
+
+Three ways of classifying the same take with the same model:
+
+| | khmer_var gru | khmer gru | old tcn |
+|---|---|---|---|
+| whole clip, direct | 96.1 | 100.0 | 92.1 |
+| committed at end of sign | 94.4 | 98.6 | 88.9 |
+| **sliding window, mid-sign** | **83.0** | **90.5** | **51.4** |
+
+The live wrapper costs **11–13 points** relative to direct classification, and
+the mid-sign window is far worse still — it holds a *partial* sign the model
+never trained on. This is inherent to sliding-window inference, not a bug.
+
+### O.4 The interface called a guess an answer **[FIXED]**
+
+`webapp/static/index.html` labelled a mid-sign prediction that passed the vote
+as **"Recognized"**, styled identically to a committed answer — same accent
+colour, same landing animation. At 83% against 94% those are not the same
+thing, and there was no way to tell them apart on screen.
+
+**Fix:** mid-sign now always reads "Reading…" in muted secondary text.
+"Recognized" and the accent styling are reserved for the committed answer.
+
+### O.5 15% of takes never produced an answer at all **[FIXED]**
+
+Only 287 of 337 `khmer_var` takes committed. Cause: the segment was discarded
+after `idle_frames_to_commit` (6 frames, 0.2 s) **whether or not it was long
+enough to classify**. Sign language holds handshapes for longer than that, so
+any sign with a mid-gesture hold lost its accumulated frames and restarted.
+
+**Fix:** `idle_frames_to_reset = 24` (~0.8 s) separates *commit* from
+*discard*. Coverage 287 → 296 on `khmer_var`, 415 → 419 on `khmer`, at no cost
+to accuracy.
+
+### O.6 Two plausible fixes that measured worse — do not retry
+
+**Absorbing hold frames into the segment.** A held handshape is part of the
+sign, so collecting those frames looks obviously right. It is not: padding
+with repeated still frames makes the clip mostly static once resampled to 60
+frames.
+
+| hold frames absorbed | khmer_var | khmer |
+|---|---|---|
+| none | **94.4** | **99.0** |
+| up to 4 | 92.4 | 97.6 |
+| up to 8 | 93.4 | 94.4 |
+| unlimited | 93.1 | 94.4 |
+
+Monotonic on `khmer`, no sweet spot. Reverted.
+
+**Lowering `segment_min_frames`** to recover the remaining coverage:
+
+| min frames | khmer_var F1 | answered | khmer F1 |
+|---|---|---|---|
+| 6 | 92.1 | 308 | 94.8 |
+| 8 | 92.8 | 307 | 97.6 |
+| 10 | 93.6 | 304 | 98.3 |
+| **12 (kept)** | **94.4** | 296 | **99.0** |
+
+Twelve extra takes on one corpus for 2.3 points there and 4.2 on the other.
+Left at 12.
+
+**The conclusion both sweeps reach:** for the ~12% of takes with fewer than 12
+moving frames, **no answer is better than a forced one**. Every attempt to
+convert them cost more than the coverage was worth.
+
+### O.7 What to expect, honestly
+
+The report's unseen-signer figure for `gru` is **83.7**, and §O.3 says the live
+wrapper costs 11–13 points relative to direct classification. A stranger
+signing at the camera should therefore expect noticeably less than 83.7, and
+the mid-sign text will look worse still before it settles.
+
+That is the state of the system, not a defect list. The fixes above remove the
+stale models, stop the interface overstating a guess, and recover the takes
+that silently produced nothing — they do not change what the model knows.

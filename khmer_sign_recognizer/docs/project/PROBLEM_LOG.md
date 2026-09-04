@@ -1101,3 +1101,64 @@ the mid-sign text will look worse still before it settles.
 That is the state of the system, not a defect list. The fixes above remove the
 stale models, stop the interface overstating a guess, and recover the takes
 that silently produced nothing — they do not change what the model knows.
+
+---
+
+## P. Live recognition still poor after §O — the input, not the model
+
+*2026-09-04. Reported as worse than before the retrain. Investigated; the
+retrained models are not the cause.*
+
+### P.1 The training corpus contains almost no mid-clip hand loss
+
+`landmarks.hand_presence` flags a hand absent when its 21 joints sit on one
+point. That is what `fill_nans` produces for a hand **never seen** in a clip.
+A hand seen and then **lost mid-clip** is held at its last position — 21
+*distinct* values — and is reported **present**.
+
+Extending the detector to also catch frozen blocks (an exact repeat of the
+previous frame, which a tracked hand never produces) changes almost nothing:
+
+| detector | left hand flagged absent | mean same-signer | mean unseen-signer |
+|---|---|---|---|
+| never-seen only | 48.6% | 89.5 | 70.1 |
+| + frozen frames | 48.8% | 89.6 | 70.1 |
+
+**Only 0.2% of recorded frames are "hand seen, then lost."** In the lighting the
+corpus was recorded under, a hand is either tracked throughout or never found.
+The extension was therefore **not adopted** — it is correct but measures
+nothing that exists in this data.
+
+### P.2 Why that matters live
+
+Poor lighting does not remove a hand cleanly; it makes tracking **flicker**.
+That produces long runs of frozen fill in the middle of a sign — a pattern the
+models have effectively never been trained on, and one the presence channel
+labels `1.0` because the coordinates are distinct.
+
+So a model can be correct, freshly trained, and verified, and still behave
+badly in a dim room, with **no offline metric able to show it**. §D4 already
+measured what dim light costs: hand detection **33% under a warm bulb, 42%
+under a white bulb**, ~57% with enhancement that was judged insufficient and
+removed. Feature importance puts **92% of the signal on the hands** (§J.4).
+
+### P.3 What was added
+
+`scripts/check_camera.py` — runs the tracker for N seconds and reports how
+often each hand is actually found, graded against the D4 thresholds, plus a
+count of mid-stream losses. It is the first thing to run when live behaviour
+disagrees with the reported scores.
+
+    python scripts/check_camera.py --seconds 20
+
+**No code change fixes this.** Enhancement was already built, measured and
+removed (§D4). More light on the hands is the fix.
+
+### P.4 If the camera checks out and it is still bad
+
+Then the honest explanation is the one in §O.8: the unseen-signer figure is
+**83.7**, the live wrapper costs 11–13 points relative to direct
+classification, and a 7-sign model trained on 4 people is simply not a solved
+system. Re-recording the corpus **in the lighting it will actually be used in**
+would do more than any further modelling — the training data currently encodes
+one narrow set of conditions.

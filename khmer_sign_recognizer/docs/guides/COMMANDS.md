@@ -218,10 +218,31 @@ Class IDs are listed in `data/external/SignList_ClassId_TR_EN.csv`
 | `onnxruntime` falls back to CPU | the GPU package is missing or shadowed — see [setup/LINUX_REBUILD.md](../setup/LINUX_REBUILD.md) §3 |
 | a teammate's takes don't appear after import | they uploaded the folder rather than its contents; re-run with `--dry-run` to see what was found |
 | scores jumped a suspicious amount | check the synthetic ratio with `verify_pool.py` — a `generate_synthetic.py` run without `--clean` is the usual cause |
+| **live recognition is much worse than the reported scores** | **run `python scripts/check_camera.py` first.** 92% of the model's signal is the hands, and poor light drops hand detection to 33–42% (PROBLEM_LOG D4). Check the camera before suspecting the model. |
+| the answer flickers while you sign | that is the mid-sign sliding window, measured 11 points below the committed answer. Watch for **"Recognized"**, not "Reading…" — sign, then pause fully. |
 
 ---
 
-## 11. The Task A report
+## 11. Check the camera before blaming the model
+
+```bash
+python scripts/check_camera.py --seconds 20
+```
+
+Sign normally while it runs. It reports how often the tracker actually finds
+each hand and grades the result against the lighting measurements in
+PROBLEM_LOG D4 (warm bulb 33%, white bulb 42%, enhanced ~57% and still
+insufficient).
+
+**Why this matters more than it sounds:** feature importance puts 92% of the
+signal on the hands, and only 0.2% of the recorded corpus is "hand seen then
+lost" — so the flickering pattern bad light produces is one the models have
+effectively never been trained on. Recognition can be far worse live than any
+offline score suggests, with nothing wrong in the code.
+
+---
+
+## 12. The Task A report
 
 One command computes every number, a second writes the document.
 

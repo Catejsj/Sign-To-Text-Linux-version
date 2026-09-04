@@ -1067,7 +1067,31 @@ Left at 12.
 moving frames, **no answer is better than a forced one**. Every attempt to
 convert them cost more than the coverage was worth.
 
-### O.7 What to expect, honestly
+### O.7 After retraining — the reported confusions are gone
+
+All six bundles replayed through the live path (same caveat as O.1 — this is
+their own training data, so these are not accuracy figures):
+
+| bundle | committed F1 | answered | worst pair (>=3) |
+|---|---|---|---|
+| `khmer_var__rf` | 96.8 | 296/337 | **none** |
+| `khmer_var__gru` | 94.4 | 296/337 | ម៉ាក់→ខុស 5 |
+| `khmer_var__tcn` | 93.3 | 296/337 | ម៉ាក់→ខុស 6 |
+| `khmer__gru` | 99.0 | 419/420 | **none** |
+| `khmer__rf` | 99.0 | 419/420 | ម៉ាក់→ប៉ា 3 |
+| `khmer__tcn` | 98.8 | 419/420 | **none** |
+
+Against the stale bundle it replaces: **88.9, with ប៉ា→ម៉ាក់ 12 and
+ជម្រាប់សួរ→អរគុណ 6.** Neither reported pair appears in any retrained model —
+the greetings pair is absent entirely, and the worst dad/mum figure anywhere is
+3.
+
+**Do not read this table as a model ranking.** `khmer_var__rf` tops it because
+a random forest memorises its training data almost perfectly, and this replay
+is on training data. The honest unseen-signer ordering is the report's:
+**gru 83.7, rf 78.5.** `gru` remains the recommendation for the live app.
+
+### O.8 What to expect, honestly
 
 The report's unseen-signer figure for `gru` is **83.7**, and §O.3 says the live
 wrapper costs 11–13 points relative to direct classification. A stranger

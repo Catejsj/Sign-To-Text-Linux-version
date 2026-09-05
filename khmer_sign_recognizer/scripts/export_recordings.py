@@ -16,6 +16,9 @@ USAGE
     # or just one person's tag:
     python scripts/export_recordings.py --signer piseth
 
+    # one person, one corpus -> exports/piseth__khmer/
+    python scripts/export_recordings.py --signer piseth --lang khmer
+
 The output mirrors the data layout, so merging on the other side is a
 plain copy — signer tags keep files from colliding.
 
@@ -41,27 +44,47 @@ def main() -> None:
     ap.add_argument("--signer", default=None,
                     help="only export this signer tag (default: every "
                          "non-AUTSL signer found).")
+    ap.add_argument("--lang", default=None,
+                    help="only export this language folder (e.g. khmer). "
+                         "Default: every language. Use it when you want to "
+                         "share one corpus without sweeping up the others.")
     ap.add_argument("--data", default=str(ROOT / "data" / "sequences_v2"),
                     help="source data root")
     ap.add_argument("--out", default=str(ROOT / "exports"),
                     help="where to write the export folder")
     ap.add_argument("--include-synthetic", action="store_true",
-                    help="also copy synthetic variants (default: skip them; "
-                         "they regenerate from real takes anyway).")
+                    help="also copy synthetic variants. Default: skip them. "
+                         "They regenerate from the real takes in one command, "
+                         "and shipping them invites a second generation run on "
+                         "top of the first, which is exactly the mistake that "
+                         "silently leaked test data into training once before "
+                         "(docs/project/PROBLEM_LOG.md C2).")
     args = ap.parse_args()
 
     data_root = Path(args.data)
     if not data_root.exists():
         sys.exit(f"no data at {data_root}")
+    if args.lang and not (data_root / args.lang).is_dir():
+        have = ", ".join(sorted(p.name for p in data_root.iterdir()
+                                if p.is_dir())) or "none"
+        sys.exit(f"no language folder {args.lang!r} in {data_root}\n"
+                 f"  available: {have}")
 
+    # Keep the language in the folder name when one was chosen, so two exports
+    # from the same person do not overwrite each other on Drive.
     name = args.signer or "all"
+    if args.lang:
+        name = f"{name}__{args.lang}"
     out_root = Path(args.out) / name / "sequences_v2"
 
     copied = 0
+    takes = 0
     skipped_autsl = 0
     signers_seen: set[str] = set()
 
     for lang_dir in sorted(p for p in data_root.iterdir() if p.is_dir()):
+        if args.lang and lang_dir.name != args.lang:
+            continue
         for label_dir in sorted(p for p in lang_dir.iterdir() if p.is_dir()):
             for npy in sorted(label_dir.glob("*.npy")):
                 signer = npy.stem.split("__")[0]
@@ -76,6 +99,10 @@ def main() -> None:
                     continue
 
                 signers_seen.add(signer)
+                # A take is stored as TWO files, a clean and a noisy view, so
+                # the file count is double the take count. Report both.
+                if "__clean__" in npy.stem:
+                    takes += 1
                 dst_dir = out_root / lang_dir.name / label_dir.name
                 dst_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(npy, dst_dir / npy.name)
@@ -90,8 +117,14 @@ def main() -> None:
               "first with scripts/record_session.py.)")
         return
 
-    print(f"exported {copied} takes from signer(s): "
-          f"{', '.join(sorted(signers_seen))}")
+    print(f"exported {takes} real takes ({copied} files — each take is a "
+          f"clean and a noisy view)")
+    print(f"  signer(s): {', '.join(sorted(signers_seen))}"
+          + (f"   language: {args.lang}" if args.lang else ""))
+    if not args.include_synthetic:
+        print("synthetic NOT included — regenerate it after importing:")
+        print(f"  python scripts/generate_synthetic.py --language "
+              f"{args.lang or '<lang>'} --per-take 6 --clean")
     print(f"skipped {skipped_autsl} AUTSL base files (not re-uploaded)")
     print(f"\nfolder ready to upload to Drive:\n  {Path(args.out) / name}")
     print("\nUpload that folder into the shared Drive, e.g.:")

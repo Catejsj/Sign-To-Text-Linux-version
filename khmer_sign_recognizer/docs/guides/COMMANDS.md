@@ -61,10 +61,27 @@ python scripts/verify_pool.py --lang khmer_var --conditions
 Then collect just your own takes into one folder to drop on Drive:
 
 ```bash
-python scripts/export_recordings.py --signer YOURTAG
+python scripts/export_recordings.py --signer YOURTAG --lang khmer
 ```
 
-Output lands in `exports/YOURTAG/`.
+Output lands in `exports/YOURTAG__khmer/`. Drop that whole folder on Drive.
+
+**One folder per person.** If two people share a machine, run it once per
+signer tag — the tags keep the files apart, and separate folders mean whoever
+imports can add one person at a time and hold another out for testing.
+
+**Synthetic is deliberately not included.** It regenerates from the real takes
+in one command, so shipping it triples the upload and invites a second
+generation run on top of the first — the mistake that silently leaked test
+data into training once already. After importing, run:
+
+```bash
+python scripts/generate_synthetic.py --language khmer --per-take 6 --clean
+```
+
+**6 per take** is the ratio both corpora use. Check it afterwards with
+`verify_pool.py`; anything that is not a clean integer breaks take-aware
+splitting.
 
 ---
 

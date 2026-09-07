@@ -276,6 +276,22 @@ six charts, and `results.json` with every figure the report quotes.
 | `--lang khmer` | run it on the other corpus instead |
 | `--quick` | classical models only, about a minute |
 | `--charts-only` | redraw the charts from the existing `results.json`, seconds |
+| `--cap-per-sign N` | use at most N real takes per signer per sign, so an uneven corpus reports a uniform protocol without deleting anything |
+| `--no-conditions` | the corpus has no lighting/distance grid (Task B is freestyle; only Task A was gridded) |
+| `--tag NAME` | suffix the output folder so two runs on one corpus coexist |
+
+**Task B (`khmer`) takes two runs** — one for the report, one for what ships:
+
+```bash
+python algo_comparison/run_task_a.py --lang khmer --grid 30 --no-conditions --cap-per-sign 30 --tag cap30
+python algo_comparison/run_task_a.py --lang khmer --grid 30 --no-conditions --tag full
+python algo_comparison/make_task_a_report.py --lang khmer --tag cap30 --title "Task B — Khmer Sign Language Recognition"
+```
+
+The capped run is the one to quote: several people recorded more than the 30
+per sign Task B asked for. The extra takes are worth about +0.9 macro-F1,
+which is inside the fold noise, so they belong in the shipped model and not in
+a protocol claim.
 
 The run takes roughly 6 minutes with a GPU: 9 classical algorithms across 3
 feature sets, 6 neural networks, and the audit. Every seed is fixed, so two

@@ -69,6 +69,18 @@ ap.add_argument("--folds", type=int, default=5)
 ap.add_argument("--epochs", type=int, default=60)
 ap.add_argument("--quick", action="store_true",
                 help="skip the deep models — classical only, ~1 minute")
+ap.add_argument("--no-conditions", action="store_true",
+                help="the corpus has no lighting/distance/position grid, so "
+                     "condition transfer is meaningless. Task B is freestyle; "
+                     "only Task A (khmer_var) was recorded on a grid.")
+ap.add_argument("--cap-per-sign", type=int, default=None, metavar="N",
+                help="use at most N real takes per (signer, sign), lowest "
+                     "variant numbers first. Makes an uneven corpus uniform "
+                     "for reporting without deleting anything. Task B was "
+                     "specified as 30 per sign; some people recorded more.")
+ap.add_argument("--tag", default=None,
+                help="suffix for the output folder, so two runs on the same "
+                     "corpus do not overwrite each other")
 ap.add_argument("--charts-only", action="store_true",
                 help="redraw the charts from an existing results.json without "
                      "recomputing anything")
@@ -76,7 +88,9 @@ A = ap.parse_args()
 
 LANG, GRID, K, EPOCHS = A.lang, A.grid, A.folds, A.epochs
 DATA = ROOT / "data" / "sequences_v2"
-OUT = ROOT / "algo_comparison" / f"results_{LANG}_taskA"
+CAP = A.cap_per_sign
+OUT = ROOT / "algo_comparison" / (
+    f"results_{LANG}_taskA" + (f"_{A.tag}" if A.tag else ""))
 OUT.mkdir(parents=True, exist_ok=True)
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -249,6 +263,32 @@ for p, m in samples:
         syn_clips.append(c); syn_y.append(m.label); syn_g.append(g)
         syn_sg.append(m.signer_id)
 
+if CAP:
+    # Keep the lowest variant numbers per (signer, label) so the choice is
+    # deterministic and reproducible rather than a random sample. Synthetic
+    # children of a dropped take go with it, or the ratio breaks.
+    from collections import Counter
+    order = defaultdict(list)
+    for i, (lab, s) in enumerate(zip(ys, sgs)):
+        order[(s, lab)].append(i)
+    keep = set()
+    for key, idxs in order.items():
+        idxs.sort(key=lambda i: tids[i][2])      # take variant
+        keep.update(idxs[:CAP])
+    kept_groups = {gids[i] for i in keep}
+    dropped = len(ys) - len(keep)
+    clips = [c for i, c in enumerate(clips) if i in keep]
+    ys = [v for i, v in enumerate(ys) if i in keep]
+    sgs = [v for i, v in enumerate(sgs) if i in keep]
+    slots = [v for i, v in enumerate(slots) if i in keep]
+    tids = [v for i, v in enumerate(tids) if i in keep]
+    gids = [v for i, v in enumerate(gids) if i in keep]
+    keep_syn = [i for i, g in enumerate(syn_g) if g in kept_groups]
+    syn_clips = [syn_clips[i] for i in keep_syn]
+    syn_y = [syn_y[i] for i in keep_syn]
+    syn_g = [syn_g[i] for i in keep_syn]
+    print(f"  cap {CAP}/sign: kept {len(ys)} real takes, dropped {dropped}")
+
 LABELS = sorted(set(ys)); l2i = {l: i for i, l in enumerate(LABELS)}
 y = np.array([l2i[t] for t in ys]); groups = np.array(gids)
 sg = np.array(sgs); slot = np.array(slots)
@@ -256,7 +296,8 @@ SIGNERS = sorted(set(sgs)); N = len(clips)
 TEXTS = json.loads((DATA / LANG / "labels.json").read_text(encoding="utf-8"))
 NAME = [TEXTS.get(l, l) for l in LABELS]
 
-R.update(n_real=N, n_synth=len(syn_clips), labels=LABELS, label_text=NAME,
+R.update(n_real=N, n_synth=len(syn_clips), cap_per_sign=CAP,
+         labels=LABELS, label_text=NAME,
          signers=SIGNERS,
          per_signer={s: int((sg == s).sum()) for s in SIGNERS})
 print(f"  {N} real + {len(syn_clips)} synthetic · {len(LABELS)} signs "
@@ -443,11 +484,14 @@ cond_hits = defaultdict(lambda: [0, 0])
 for tr, te in FOLDS:
     m = wrap(fac_best()); m.fit(X[tr], y[tr]); p = m.predict(X[te])
     cm += confusion_matrix(y[te], p, labels=range(len(LABELS)))
-    for t_, pr, s_ in zip(y[te], p, slot[te]):
-        light = "full" if s_ < 6 else "dim"
-        dist = "near" if (s_ % 6) < 3 else "far"
-        cell = cond_hits[(LABELS[t_], light, dist)]
-        cell[1] += 1; cell[0] += int(t_ == pr)
+    if not A.no_conditions:
+        # `slot` only means anything on a corpus recorded to a grid. On a
+        # freestyle corpus it is variant % GRID, which is not a condition.
+        for t_, pr, s_ in zip(y[te], p, slot[te]):
+            light = "full" if s_ < 6 else "dim"
+            dist = "near" if (s_ % 6) < 3 else "far"
+            cell = cond_hits[(LABELS[t_], light, dist)]
+            cell[1] += 1; cell[0] += int(t_ == pr)
 
 per_f1 = {}
 for i, lab in enumerate(LABELS):
@@ -508,7 +552,8 @@ def cond_transfer(train_mask, test_mask, fac):
                           average="macro", zero_division=0) * 100)
 
 
-R["condition_transfer"] = [
+R["has_grid"] = not A.no_conditions
+R["condition_transfer"] = [] if A.no_conditions else [
     {"axis": "Lighting", "trained_on": "full light", "tested_on": "dim light",
      "f1": cond_transfer(slot < 6, slot >= 6, fac_best)},
     {"axis": "Distance", "trained_on": "near", "tested_on": "far",

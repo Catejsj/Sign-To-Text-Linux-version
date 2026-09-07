@@ -1162,3 +1162,170 @@ classification, and a 7-sign model trained on 4 people is simply not a solved
 system. Re-recording the corpus **in the lighting it will actually be used in**
 would do more than any further modelling — the training data currently encodes
 one narrow set of conditions.
+
+---
+
+## Q. The khmer corpus grew from 2 signers to 7
+
+*2026-09-07. Five people's Task B uploads imported. 420 → 1722 real takes.*
+
+### Q.1 What arrived
+
+A 1 GB zip, 38,429 files, one folder per person — and every person had
+structured it differently: `Chingsan/sl_007/`, `Mengly/labels.json`,
+`Mao Chhaiyanin/khmer_signs/sl_006/`, `Seng Menghong/khmer/sl_001/`.
+`import_takes.py` handled all four layouts without configuration, which is
+what it was built for.
+
+| signer | real takes added |
+|---|---|
+| Chingsan | 210 |
+| Mao Chhaiyanin | 292 |
+| Mengly | 296 |
+| reaj | 294 |
+| Seng Menghong | 210 |
+
+Plus the two already present (Piseth, Vichet, 210 each) = **7 signers, 1722
+real takes**, and 10332 synthetic at exactly 6:1.
+
+### Q.2 Four things that would have silently corrupted the corpus
+
+**A folder named for one person containing another's files.** `Seth/` held 210
+takes tagged `Piseth`. `import_takes.py` takes the signer from the **folder**,
+not the filename, which is the only reason this was safe — the filename would
+have merged a stranger's upload into an existing signer.
+
+**A whole upload that was already present.** All 210 of `Seth/`'s takes were
+byte-identical to data already in the corpus. Content-hash dedup dropped every
+one. Without it the corpus would have gained 210 exact duplicates, which
+inflates any same-signer score and is invisible afterwards.
+
+**Two people using the default signer tag.** `me` appeared inside filenames
+under two different folders. Had the importer trusted filenames, two people
+would have merged into one fictional signer and leave-one-signer-out would
+have been quietly wrong. Folder-based resolution made it a non-event.
+
+**Uploaded synthetic with broken ratios.** Every upload contained synthetic at
+ratios that did not divide evenly (186 against 42, 180 against 32, …). The
+uploaded synthetic was discarded before import and regenerated once with
+`--clean --per-take 6`. **Shipping synthetic is the mistake here** — see §C2;
+it should stay out of the upload entirely (`export_recordings.py` now skips it
+by default).
+
+### Q.3 Incomplete takes break synthetic silently **[FIXED]**
+
+15 takes arrived with a **clean view but no noisy view**. Nothing complains at
+import — but `generate_synthetic.py` iterates over `*__real__noisy__*.npy`, so
+a take with no noisy view gets **no synthetic at all**. The 6:1 ratio then
+stops dividing evenly, and an uneven ratio is exactly what makes the
+take-aware split group a clip under the wrong parent (§C2, the leak).
+
+`verify_pool.py` caught it: 15 "missing its noisy view" plus 3 ratio failures.
+The takes were quarantined rather than deleted, then synthetic regenerated —
+after which verify passes with no problems.
+
+All 15 were Seng Menghong's takes beyond variant 0030, so removing them left
+him at exactly 30 per sign without any trimming decision being needed.
+
+**Lesson:** a half-uploaded take is worse than a missing one, because it
+corrupts an invariant several layers away from where it was introduced. Run
+`verify_pool.py` after every import — the failure has no other symptom.
+
+### Q.4 Uneven counts, handled without deleting anything
+
+Four people recorded more than the 30 per sign Task B asked for (36–44).
+Rather than trim the corpus, `run_task_a.py` gained `--cap-per-sign N`, which
+selects the lowest variant numbers per (signer, sign) and drops their
+synthetic children with them. The full corpus stays intact for training; the
+report can quote a uniform protocol.
+
+    python algo_comparison/run_task_a.py --lang khmer --grid 30 \
+        --no-conditions --cap-per-sign 30 --tag cap30      # for the report
+    python algo_comparison/run_task_a.py --lang khmer --grid 30 \
+        --no-conditions --tag full                          # what ships
+
+### Q.5 Seven signers changed the picture
+
+Leave-one-signer-out over all seven, macro-F1:
+
+| corpus | signers | best unseen-signer |
+|---|---|---|
+| `khmer`, before this import | 2 | 83.8 |
+| `khmer_var` | 4 | 85.1 |
+| **`khmer`, after** | **7** | **93.3** |
+
+Two things fall out of it.
+
+**All six architectures land within 1.5 points** (92.3–93.3) where on
+`khmer_var` they spread over 6. **And classical nearly caught deep** — gboost
+91.9 against tcn 93.3, a 1.4-point gap, where the 4-signer corpus showed 6.6.
+The case for a sequence model weakens as the corpus grows, which is the
+opposite of the usual expectation and worth stating in the paper.
+
+§H item 6 has called a third signer the highest-value next step since before
+there was a fourth. This is that claim being paid out.
+
+### Q.6 Do the extra takes above 30 matter? Barely
+
+252 extra real takes, +17% data, measured on identical folds:
+
+| | capped at 30 | all takes | gain |
+|---|---|---|---|
+| tcn | 92.0 | 93.3 | +1.3 |
+| bilstm | 92.4 | 93.1 | +0.7 |
+| gru | 90.9 | 92.4 | +1.5 |
+| gboost | 91.5 | 91.9 | +0.4 |
+| **mean over 9 models** | | | **+0.9** |
+
+**The gain is inside the fold-to-fold spread of ±5.8**, so no single model's
+improvement is significant. But **all nine moved the same way**, between +0.5
+and +1.5, which a coin would do about twice in a thousand tries. So the effect
+is real and small: worth keeping for a shipped model, not worth claiming.
+
+Hence two runs from one corpus — `--cap-per-sign 30` for anything quoted as
+protocol, the full set for the models that actually ship. Nothing is
+duplicated on disk and nothing is deleted.
+
+### Q.7 The report generator invented a protocol Task B never had
+
+`make_task_a_report.py` was written for `khmer_var` and hard-coded its
+protocol. Run against Task B it stated as fact:
+
+> "two lighting levels x two distances from the camera x three standing
+> positions"
+
+and printed a table of per-condition accuracy for the weakest sign:
+
+| Condition | Correct | Rate |
+|---|---|---|
+| dim light, far | 82/84 | 98% |
+| full light, near | 19/21 | 90% |
+
+**None of that exists.** Task B was recorded freely — no lighting, distance or
+position was ever prescribed. Those labels came from `variant % GRID`, an
+index with no physical meaning on a freestyle corpus, relabelled as lighting
+and distance by code that assumed every corpus was gridded.
+
+This is the most dangerous kind of bug in a reporting tool: it produced a
+plausible, well-formatted table that a reader has no way to question, and it
+would have gone into a report handed to a teacher.
+
+**Fix:** `--no-conditions` marks a corpus as freestyle. The slot arithmetic is
+then skipped entirely rather than computed and ignored, section 8 becomes a
+short note explaining there is no grid, and section 5 reports per-sign scores
+without a condition breakdown. `khmer_var` keeps both tables, because there
+the grid is real.
+
+**Rule this implies:** a report generator must derive its claims about the
+protocol from the data, never from the corpus it was first written against.
+Every sentence describing how the data was collected is a factual claim.
+
+### Q.8 Report generator, other corpus-awareness fixes
+
+`make_task_a_report.py` was written for `khmer_var` and hard-coded its
+protocol — "two lighting levels x two distances x three standing positions".
+Run against Task B it printed that as fact, and section 8 computed condition
+transfer from grid slots that do not exist. Both corpora now produce a report
+describing the corpus they were actually run on: `--no-conditions` marks a
+freestyle corpus, and section 8 becomes a short note saying so rather than a
+fabricated table.

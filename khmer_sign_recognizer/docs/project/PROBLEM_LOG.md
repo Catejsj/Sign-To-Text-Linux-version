@@ -1329,3 +1329,119 @@ transfer from grid slots that do not exist. Both corpora now produce a report
 describing the corpus they were actually run on: `--no-conditions` marks a
 freestyle corpus, and section 8 becomes a short note saying so rather than a
 fabricated table.
+
+---
+
+## R. Why the TCN behaves as it does live, and one fix that was not adopted
+
+*2026-09-07. Prompted by a user report: "the TCN is very accurate when I sign
+fast, but it flickers." Both halves turned out to be the same property.*
+
+### R.1 What the architecture actually buys
+
+Six architectures, each held out against all seven signers in turn (42
+trainings). Mean over folds:
+
+| model | complete | 1.5× speed | 40% done | flicker |
+|---|---|---|---|---|
+| **tcn** | **93.4** | **93.3** | **63.6** | 0.9 |
+| bilstm | 93.1 | 92.9 | 68.2 | 1.0 |
+| gru | 92.4 | 92.4 | 66.3 | 0.9 |
+| bigru | 92.4 | 92.5 | 67.2 | 1.0 |
+| lstm | 92.3 | 91.7 | 66.7 | 0.8 |
+| transformer | 92.3 | 91.9 | 67.6 | 1.1 |
+
+**Speed-invariance is the TCN's real advantage and it holds in 7/7 folds** —
+complete 93.4 → 93.3 at 1.5×, no other architecture is that flat.
+
+**It is also the WORST model on a partial sign, in 5/7 folds.** Both come from
+the same mechanism: `max_pool` over time asks "did this pattern appear
+anywhere", which is position-independent. A complete sign fires the detector
+identically at any speed; an incomplete one fires it on partial evidence.
+
+Claimed and retracted: "the TCN is the best model." It has the highest mean but
+wins outright in only 3/7 folds — inside the fold spread.
+
+### R.2 The signs converge; the early half is the informative one
+
+Distance between class means at each frame, and accuracy from each half alone:
+
+| pair | first third | last third | first half only | second half only |
+|---|---|---|---|---|
+| hello vs thanks | 1.10 | **0.82** | **96.7** | 81.7 |
+| dad vs mum | 0.95 | **0.82** | **100.0** | 88.3 |
+
+**Both pairs end equally alike (0.82).** Dad/mum survives because the pair is
+further apart overall — centroid distance 49.90 against **14.97** for
+hello/thanks, which is the closest pair of all 21 and three times closer than
+the next.
+
+So the model leans on the ending, and the ending is the half that discriminates
+least. **That is a training artefact, not a property of the signs** — it only
+ever saw complete clips.
+
+### R.3 It is not a training-budget problem
+
+| epochs | channels | train acc | hello↔thanks errors |
+|---|---|---|---|
+| 60 | 128 | **100.0%** | 1 of 60 |
+| 300 | 128 | **100.0%** | 1 of 60 |
+| 150 | 256 | **100.0%** | 0 of 60 |
+
+5× the epochs and 4× the parameters change nothing, and train accuracy is
+pinned at 100% throughout — there is no gap for compute to close.
+
+### R.4 Training on partial signs: works exactly as predicted, and is NOT adopted
+
+Each epoch, half of every batch truncated to a random 30–100% and resampled
+back to 60. Seven folds, TCN:
+
+| | complete | 40% | 60% | flicker | pair |
+|---|---|---|---|---|---|
+| baseline | 92.89 | 63.17 | 82.96 | 0.90 | 6.14 |
+| partial | 93.15 | **74.52** | 87.40 | 1.07 | 6.00 |
+| | +0.26 | **+11.34** | +4.44 | **+0.17** | −0.14 |
+
+| metric | partial better in |
+|---|---|
+| **40% accuracy** | **7/7** |
+| 60% | 4/7 |
+| complete | 3/7 |
+| **flicker** | **1/7** |
+
+**The mechanism is confirmed — +11.3 at 40%, positive in every fold, the most
+consistent effect measured on this project.** And it is still the wrong change
+to ship.
+
+The number a user reads is the **committed** answer, which this does not
+improve (+0.26, 3/7 — noise). What it improves is the mid-sign "Reading…"
+text, already marked unreliable — and it makes that text change *more*, which
+is the visible symptom that prompted the work.
+
+**Why flicker rises while accuracy rises.** They measure different things. A
+model confidently stuck on one wrong label for the first half is perfectly
+stable — zero flicker, consistently wrong. One that updates as evidence
+arrives changes its answer more and ends up right. Do not treat label-change
+count as a quality metric.
+
+**When this WOULD be the right change:** if the app ever answers before a sign
+finishes, rather than committing on the pause. 74.5 against 63.2 at 40% is the
+difference between that being viable and not. It is a feature enabler, not a
+bug fix.
+
+### R.5 One signer is an outlier, and it is not the architecture
+
+| | complete | 40% | hello↔thanks |
+|---|---|---|---|
+| the other six | 91.4–99.3 | 45–96 | 0–8 |
+| **Seng Menghong** | **77.9** | 45.0 | **23** |
+
+Thirteen points below the next lowest, and roughly triple the worst pair
+confusion. Partial training barely moved it (23 → 22), so it is not the
+partial-window issue.
+
+He is also the signer whose upload contained the 15 half-recorded takes (§Q.3).
+That points at the recording session rather than the model — plausibly the same
+hand-tracking dropout §P describes. **One signer this weak drags every
+cross-signer average, and re-recording him is likely worth more than any
+modelling change.** Not yet investigated.

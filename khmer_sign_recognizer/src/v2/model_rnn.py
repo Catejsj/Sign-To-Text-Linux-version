@@ -1,9 +1,9 @@
 """Recurrent baselines: GRU, LSTM, and their bidirectional forms.
 
-A GRU already existed, defined inline inside `algo_comparison/run_comparison.py`
-where nothing else could reach it — which is why the deep category has only ever
-been compared two-wide. These are the same idea, importable, so the deep side of
-the comparison is as populated as the classical side.
+A GRU used to exist, defined inline inside the old `run_comparison.py` where
+nothing else could import it — which is why the deep category was only ever
+compared two-wide. That driver is gone; these are the same idea, importable, so
+the deep side of the comparison is as populated as the classical side.
 
 Bidirectional is the honest default for *offline* scoring: a recorded take is
 complete, so there is no reason to hide the second half from the model. It is

@@ -8,7 +8,7 @@ Time budget: ~90 minutes the first time. ~10 minutes every time after.
 
 **Prerequisites**: the repo already cloned at `D:\Projects\Sign to Text\khmer_sign_recognizer`,
 Windows venv working (camera + MediaPipe + RTMPose already run successfully at least once),
-a GitHub account with push access to `Catejsj/Sign-to-Text`,
+a GitHub account with push access to `Catejsj/Sign-To-Text-Linux-version`,
 a Google student account you'll use for Drive.
 
 All commands use **Git Bash** on Windows (comes with Git). Open it via Start → "Git Bash".
@@ -77,7 +77,7 @@ Use a **personal access token**, not your password:
 GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
 → Generate new (scope: `repo`). Paste the token as the password.
 
-**Verify**: open https://github.com/Catejsj/Sign-to-Text in the browser.
+**Verify**: open https://github.com/Catejsj/Sign-To-Text-Linux-version in the browser.
 You should see `WORKFLOW.md`, `src/v2/`, `scripts/drive_sync.py` in the tree.
 
 ---
@@ -282,7 +282,7 @@ and confirm the label folders are visible.
 
 Go to https://colab.research.google.com → File → Open notebook → **GitHub** tab.
 
-- Paste the repo URL: `https://github.com/Catejsj/Sign-to-Text`
+- Paste the repo URL: `https://github.com/Catejsj/Sign-To-Text-Linux-version`
 - Open the file: `khmer_sign_recognizer/notebooks/colab_train_v2.py`
 
 Colab will convert the `.py` into notebook cells automatically
@@ -349,7 +349,7 @@ ls models/weights_v2/
 | `git push` asks for password | Use a **personal access token**, not your password. See step 1d. |
 | `rclone: command not found` | PATH didn't update; reopen terminal or run `export PATH="$PATH:/c/Tools/rclone"` |
 | `rclone config` browser won't open | Pick `n` at the "auto config" prompt; it gives a URL to paste manually. |
-| Colab says `ModuleNotFoundError: No module named 'src'` | You're not inside `khmer_sign_recognizer/`. Cell 2 ends with `%cd /content/Sign-to-Text/khmer_sign_recognizer`. Rerun it. |
+| Colab says `ModuleNotFoundError: No module named 'src'` | You're not inside `khmer_sign_recognizer/`. Cell 2 ends with `%cd /content/Sign-To-Text-Linux-version/khmer_sign_recognizer`. Rerun it. |
 | Colab says `no samples found under data/sequences_v2` | Cell 4 didn't run, or your `push-data` didn't actually push. Rerun cell 4 and re-verify Drive. |
 | `val_acc` stuck near random (1/10 = 0.1) | You don't have enough data. Record more takes / more signers. |
 | `val_acc` very high but model fails on new signers | You trained on one signer. Add teammates as signers, then retrain with `held_out_signer="<one-of-the-signer-names>"` to measure real generalization. |

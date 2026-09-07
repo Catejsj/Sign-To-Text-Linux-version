@@ -64,8 +64,9 @@ def frame_from_landmarks(
     **Default is False and the stored contract is still (60, 48, 3).** Eight
     people are recording against that shape right now, and `schema.py`,
     `SignDataset` and `verify_pool.py` all assert it. Switching the default is
-    a migration, not a flag flip; `canonical.py` is the consumer that would
-    make it worth doing, and it does not yet beat the cheaper reconstruction.
+    a migration, not a flag flip. A consumer for it was built and measured
+    (`canonical.py`, removed) and did NOT beat reconstructing the mask from the
+    damage pattern — see docs/project/PROBLEM_LOG.md L before rebuilding one.
     """
     cols = NUM_COORDS + 1 if with_visibility else NUM_COORDS
     out = np.full((NUM_JOINTS, cols), np.nan, dtype=np.float32)

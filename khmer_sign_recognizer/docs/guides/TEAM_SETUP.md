@@ -9,13 +9,13 @@ problems we keep hitting.
 ## 1. Get the code (everyone, first time)
 
 ```powershell
-git clone https://github.com/Catejsj/Sign-to-Text.git
-cd Sign-to-Text\khmer_sign_recognizer
+git clone https://github.com/Catejsj/Sign-To-Text-Linux-version.git
+cd Sign-To-Text-Linux-version\khmer_sign_recognizer
 ```
 
 Already have it? Just update:
 ```powershell
-cd Sign-to-Text\khmer_sign_recognizer
+cd Sign-To-Text-Linux-version\khmer_sign_recognizer
 git pull
 ```
 

@@ -169,7 +169,7 @@ takes, so it is evenly spread through the session.
 
 ```bash
 # Experiment 1 — full comparison, charts, and .docx report
-python algo_comparison/run_comparison.py --lang khmer --seeds 5
+python algo_comparison/run_comparison.py (replaced by `run_task_a.py`) --lang khmer --seeds 5
 
 # a subset, much faster while iterating
 python algo_comparison/run_comparison.py --lang khmer --algos rf,lda,bagging

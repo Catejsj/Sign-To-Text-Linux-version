@@ -24,7 +24,7 @@ classify them. This guide gets you from zero to recording.
 
 Option A — Download ZIP:
 
-1. <https://github.com/Catejsj/Sign-to-Text>
+1. <https://github.com/Catejsj/Sign-To-Text-Linux-version>
 2. Green **Code** button → **Download ZIP**
 3. Unzip somewhere — every command below runs inside the
    `khmer_sign_recognizer` folder of what you unzipped
@@ -32,8 +32,8 @@ Option A — Download ZIP:
 Option B — Clone:
 
 ```powershell
-git clone https://github.com/Catejsj/Sign-to-Text.git
-cd Sign-to-Text\khmer_sign_recognizer
+git clone https://github.com/Catejsj/Sign-To-Text-Linux-version.git
+cd Sign-To-Text-Linux-version\khmer_sign_recognizer
 ```
 
 ---

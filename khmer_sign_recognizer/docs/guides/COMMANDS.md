@@ -166,16 +166,19 @@ Adding your own algorithm needs no changes to shared code — drop a file in
 ## 7. Run a full comparison and produce the report
 
 ```bash
-# Task A (khmer_var, the 12-take grid) — real, then real+synthetic
-python algo_comparison/run_var_experiment.py --lang khmer_var --mode real
-python algo_comparison/run_var_experiment.py --lang khmer_var --mode both
+# Task A (khmer_var, the 12-cell grid)
+python algo_comparison/run_task_a.py --lang khmer_var
+python algo_comparison/make_task_a_report.py --lang khmer_var
 
-# the side-by-side of those two runs
-python algo_comparison/make_var_comparison.py
-
-# Task B (khmer, the 30-take corpus)
-python algo_comparison/run_comparison.py
+# Task B (khmer, freestyle) — capped for the report, full for what ships
+python algo_comparison/run_task_a.py --lang khmer --grid 30 --no-conditions --cap-per-sign 30 --tag cap30
+python algo_comparison/run_task_a.py --lang khmer --grid 30 --no-conditions --tag full
+python algo_comparison/make_task_a_report.py --lang khmer --tag cap30 --title "Task B — Khmer Sign Language Recognition"
 ```
+
+`run_task_a.py` replaced the older `run_var_experiment.py` / `run_comparison.py`
+pair in September 2026: 15 models instead of 9, both a same-signer and an
+unseen-signer score for each, and the adversarial audit.
 
 Charts and a `.docx` land in `algo_comparison/results_*/`. What the numbers
 mean: [results/TASK_A_FOR_TEACHER.md](../results/TASK_A_FOR_TEACHER.md).

@@ -268,5 +268,5 @@ average of 8 different splits, reported with its standard deviation.
 **"Could someone else reproduce this?"**
 Yes — one command:
 ```
-python algo_comparison/run_var_experiment.py --lang khmer_var
+python algo_comparison/run_var_experiment.py (replaced by `run_task_a.py`) --lang khmer_var
 ```

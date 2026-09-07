@@ -27,28 +27,32 @@ Two corpora of the same 7 signs, both recorded with the landmark pipeline:
 
 | | signs | takes / sign | real takes | signers |
 |---|---|---|---|---|
-| **`khmer`** — recognition corpus | 7 | 30 | 420 | 2 |
+| **`khmer`** — recognition corpus | 7 | 30+ | **1,722** | **7** |
 | **`khmer_var`** — variation grid | 7 | 12 | 337 | 4 |
 
-**On the recognition corpus, tested on the person who recorded it:** 97%
-macro-F1 (logistic regression). **Tested on a signer the model has never
-seen,** the same setup gets 44%.
+**Tested on a signer the model has never seen** — the number that matters,
+because that is what happens when a stranger uses it:
 
-| algorithm | same signer | unseen signer | drop |
+| model | same signer | unseen signer | runs live? |
 |---|---|---|---|
-| Logistic Regression | 97.1 | 43.6 | −53.5 |
-| Random Forest | 96.9 | 59.3 | −37.6 |
-| **Bagged Trees** | **96.0** | **75.0** | **−21.0** |
-| Gradient Boosting | 95.0 | 36.2 | −58.8 |
-| SVM | 94.0 | 27.1 | −66.9 |
+| **TCN** | 98.1 | **93.3** | yes |
+| BiLSTM | 98.5 | 93.1 | no — reads the clip backwards |
+| GRU | 98.4 | 92.4 | yes |
+| Gradient Boosting | 98.0 | 91.9 | yes (classical) |
+| Random Forest | 98.0 | 90.6 | yes (classical) |
 
-*Mean macro-F1 (%), 5 take-aware splits; unseen-signer column is
-leave-one-signer-out over both signers.*
+*Macro-F1, leave-one-signer-out over all 7 signers. Every sign scores above 95.*
 
-**The ranking inverts.** The algorithm that wins on your own data is not the
-one that survives a new person — the best same-signer model loses the most,
-and the model ranked third generalises best by a wide margin. Any number
-quoted without saying which signer it was tested on is close to meaningless.
+**Why both columns.** The same features that recognise signs identify *who is
+signing* at 98%, so a same-signer score partly measures "can it recognise this
+person" — which is not the task. Any number quoted without saying which signer
+it was tested on is close to meaningless.
+
+**What moved this number was people, not models.** With 2 signers the best
+unseen-signer score was 83.8; with 7 it is 93.3. Over the same period the gap
+between the best and worst architecture shrank to about 1 point — as the corpus
+grew, the choice of model stopped mattering and the choice of *who recorded*
+started to.
 
 Full write-up: [`docs/results/`](khmer_sign_recognizer/docs/results/).
 

@@ -5,7 +5,7 @@ HOW TO USE IN COLAB
 -------------------
 Open a fresh Colab notebook and paste EACH block below into its own cell.
 Or: open this file directly from the GitHub repo in Colab
-    (File → Open notebook → GitHub → Catejsj/Sign-to-Text → this file).
+    (File → Open notebook → GitHub → Catejsj/Sign-To-Text-Linux-version → this file).
 
 The notebook:
     1. mounts your student Google Drive
@@ -29,13 +29,13 @@ Drive layout expected:
 # ============================================================================
 # CELL 2 — clone or update the repo
 # ============================================================================
-# !git config --global --add safe.directory /content/Sign-to-Text
+# !git config --global --add safe.directory /content/Sign-To-Text-Linux-version
 # import os
-# if not os.path.isdir('/content/Sign-to-Text'):
-#     !git clone https://github.com/Catejsj/Sign-to-Text.git /content/Sign-to-Text
+# if not os.path.isdir('/content/Sign-To-Text-Linux-version'):
+#     !git clone https://github.com/Catejsj/Sign-To-Text-Linux-version.git /content/Sign-To-Text-Linux-version
 # else:
-#     !cd /content/Sign-to-Text && git fetch && git reset --hard origin/main
-# %cd /content/Sign-to-Text/khmer_sign_recognizer
+#     !cd /content/Sign-To-Text-Linux-version && git fetch && git reset --hard origin/main
+# %cd /content/Sign-To-Text-Linux-version/khmer_sign_recognizer
 
 # ============================================================================
 # CELL 3 — install deps (torch is pre-installed in Colab)
@@ -80,7 +80,7 @@ Drive layout expected:
 # !cp models/weights_v2/ksl_transformer_latest.pt \
 #    "{dst_weights}/ksl_transformer_latest.pt"
 # !cp models/weights_v2/labels.json "{dst_weights}/labels.json"
-# with open(f"/content/Sign-to-Text/khmer_sign_recognizer/logs/v2/{run_id}.json", "w") as f:
+# with open(f"/content/Sign-To-Text-Linux-version/khmer_sign_recognizer/logs/v2/{run_id}.json", "w") as f:
 #     json.dump(result, f, indent=2, default=str)
 # !cp logs/v2/{run_id}.json "{dst_logs}/"
 # print("done. run_id:", run_id)

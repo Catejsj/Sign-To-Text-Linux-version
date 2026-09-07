@@ -221,7 +221,7 @@ accepts it if you do.
 |---|---|---|
 | purpose | which algorithm is best | the model Recognize mode loads |
 | how many algorithms | **many** | **one** |
-| command | `run_comparison.py` | `run_baseline.py --save` |
+| command | `run_comparison.py (replaced by `run_task_a.py`)` | `run_baseline.py --save` |
 | writes a model file | no | **yes**, `models/recognizers/<lang>__<algo>.joblib` |
 | what the number means | honest held-out score | **there isn't one** — see below |
 

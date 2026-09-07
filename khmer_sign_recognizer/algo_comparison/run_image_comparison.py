@@ -1,6 +1,8 @@
 """Train every algorithm on Sign Language MNIST (image classification).
 
-Companion to run_comparison.py (which uses the project's own landmark data).
+The image counterpart to run_task_a.py, which uses the project's own landmark
+data. This one runs on Sign Language MNIST and exists to show that algorithm
+rankings do NOT transfer between datasets (PROBLEM_LOG G).
 This one uses the public Kaggle dataset so every teammate can reproduce the
 comparison on identical, already-labelled data:
 

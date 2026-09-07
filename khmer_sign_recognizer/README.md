@@ -32,24 +32,27 @@ khmer_sign_recognizer/
 ├── run_web.sh / run_web.bat        launch the control panel
 ├── run_mannequin.bat               launch the 3D viewer alone (Windows)
 │
-├── src/
+├── src/                        → README.md — read schema.py first
 │   ├── capture.py                  camera + MediaPipe + RTMPose, device pick
 │   ├── cuda_setup.py               GPU library loading
 │   └── v2/
 │       ├── schema.py               THE data contract — filenames, shapes
 │       ├── normalize.py            clean + noisy normalisation
+│       ├── landmarks.py            which hands were really seen
+│       ├── bones.py                parent-relative unit vectors
 │       ├── retarget.py             synthetic signers (skeletal retargeting)
 │       ├── augment.py              time-warp / noise / rotation
-│       ├── dataset.py              sample discovery + splits
+│       ├── dataset.py              discovery + TAKE-AWARE splits
 │       ├── baseline_data.py        feature extraction for classical ML
 │       ├── baseline_eval.py        metrics and reports
 │       ├── algorithms.py           the algorithm registry
 │       ├── recognizer.py           saved-model bundles + live prediction
 │       ├── model_tcn.py            SignTCN
+│       ├── model_rnn.py            GRU / LSTM, uni- and bidirectional
 │       ├── model_transformer.py    SignTransformer
 │       └── train.py                deep-model training loop
 │
-├── scripts/
+├── scripts/                    → README.md
 │   ├── record_session.py           CLI recorder (paired clean + noisy)
 │   ├── mannequin_local.py          3D viewer / playback
 │   ├── generate_synthetic.py       build synthetic body-variants
@@ -58,18 +61,19 @@ khmer_sign_recognizer/
 │   ├── verify_pool.py              validate pooled data before training
 │   ├── check_labels.py             diff labels.json against the team's
 │   ├── relabel.py                  fix a wrong label safely
+│   ├── check_camera.py             is the camera seeing your hands?
 │   ├── export_recordings.py        collect your own takes for upload
 │   ├── drive_sync.py               rclone wrapper
 │   └── run_baseline.py             train ONE algorithm, report metrics
 │
-├── webapp/                         the control panel
+├── webapp/                     → README.md — the control panel
 │   ├── __main__.py                 supervisor loop (owns the main thread)
 │   ├── app.py                      Flask routes
 │   ├── engine.py                   capture/record/recognize state machine
 │   ├── library.py                  language + take scanning
 │   └── static/index.html           the whole UI, no build step
 │
-├── algo_comparison/                experiment drivers → charts + .docx
+├── algo_comparison/            → README.md — experiments → charts + .docx
 ├── custom_algos/                   drop a .py here to add an algorithm
 ├── signlang_image_lab/             separate image-based side experiment
 ├── notebooks/                      Colab entrypoints
@@ -127,9 +131,14 @@ crash or hang if driven from a worker thread. Keep it that way.
 | Synthetic signer generation | working |
 | Control panel — Record mode | working |
 | Control panel — Recognize mode | working |
-| Classical-ML comparison + reports | done — see `docs/results/` |
-| SignTCN / SignTransformer | built and trainable; classical ML is the current results path |
+| Six architectures compared | done — TCN / GRU / LSTM / BiGRU / BiLSTM / Transformer |
+| Classical vs deep, both corpora | done — `docs/project/PROBLEM_LOG.md` §J–Q |
 | Godot mannequin + WSL UDP bridge | **removed** — replaced by an in-process Open3D window |
+
+**Where it stands:** 7 signers, 1,722 real takes on `khmer`. Best unseen-signer
+score **93.3** (TCN), every sign above 95%. The number that matters is the
+unseen-signer one — the same features identify *who* is signing at 98%, so a
+same-signer score flatters every model.
 
 ---
 

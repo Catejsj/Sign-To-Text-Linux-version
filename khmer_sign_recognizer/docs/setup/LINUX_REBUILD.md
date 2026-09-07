@@ -37,8 +37,8 @@ step 3). Only the NVIDIA **driver** is required, which CachyOS installs already.
 ## 1. Get the project
 
 ```bash
-git clone https://github.com/Catejsj/Sign-to-Text.git
-cd Sign-to-Text/khmer_sign_recognizer
+git clone https://github.com/Catejsj/Sign-To-Text-Linux-version.git
+cd Sign-To-Text-Linux-version/khmer_sign_recognizer
 ```
 
 If copying the SSD folder instead of cloning and git complains about

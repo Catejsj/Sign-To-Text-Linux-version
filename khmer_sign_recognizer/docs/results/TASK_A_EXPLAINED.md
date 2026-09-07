@@ -230,7 +230,7 @@ needs recordings from more of the team.
 One command regenerates every number, chart and the document itself:
 
 ```bash
-python algo_comparison/run_var_experiment.py
+python algo_comparison/run_var_experiment.py (replaced by `run_task_a.py`)
 ```
 
 Every algorithm has a fixed random seed, so anyone running it gets **identical**

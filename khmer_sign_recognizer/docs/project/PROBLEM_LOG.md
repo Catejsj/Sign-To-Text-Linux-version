@@ -1445,3 +1445,81 @@ That points at the recording session rather than the model — plausibly the sam
 hand-tracking dropout §P describes. **One signer this weak drags every
 cross-signer average, and re-recording him is likely worth more than any
 modelling change.** Not yet investigated.
+
+---
+
+## S. ST-GCN — built, measured, not adopted
+
+*2026-09-07. Goal: stop confusing ជម្រាប់សួរ with អរគុណ.*
+
+### S.1 The reasoning for trying it
+
+Every model here reads a frame as a flat vector; `bones.py` improved that by
+supplying parent-relative directions but it is still a bag of numbers. ST-GCN
+encodes the skeleton as a graph — each joint computed from its neighbours,
+weights shared across the structure.
+
+The specific hypothesis: hello and thanks sit **14.97** apart where the next
+closest pair is 43.76 (§R.2) and they converge in trajectory, so what should
+separate them is **handshape** — the spatial arrangement of fingers at an
+instant. That is what a flat vector represents worst and a graph convolution
+represents directly.
+
+Implemented properly: three distance partitions (identity / inward / outward),
+learned edge importance, spatial gconv + temporal conv with residuals, 1.29M
+parameters. Verified to actually use the graph — **shuffling joint order
+changes the output**, which no other model here does. Both models were given
+identical information (xyz + bone direction + visibility); only the arrangement
+differs.
+
+### S.2 It lost
+
+Mean over all seven held-out signers:
+
+| model | complete | 40% | 60% | flicker | pair |
+|---|---|---|---|---|---|
+| **tcn** | **93.25** | **64.04** | **82.80** | 0.88 | **6.14** |
+| stgcn | 92.00 | 58.77 | 78.95 | **0.83** | 6.57 |
+
+| metric | stgcn better in |
+|---|---|
+| complete | **1/7** |
+| 40% | 2/7 |
+| flicker | 4/7 |
+| pair | 4/7 |
+
+Total hello/thanks errors across every fold: **tcn 43, stgcn 46.** Worse on the
+metric it was built for.
+
+**The hypothesis is probably wrong.** The architecture works; if handshape were
+what separated those two signs, a graph convolution would have found it.
+
+### S.3 The one property worth keeping in mind
+
+Its error distribution is far flatter than the TCN's:
+
+| | easy folds | hard folds |
+|---|---|---|
+| TCN pair errors | 0, 1, 1, 2 | 8, 8, **23** |
+| ST-GCN | 8, 3, 7, 2 | 4, 8, **14** |
+
+It does not win where the TCN already succeeds, and degrades much less where it
+does not — **23 → 14** on the weakest signer, **8 → 4** on another. If
+worst-case behaviour ever matters more than the mean, or recording quality
+drops, this is the better-shaped model.
+
+### S.4 What this closes
+
+Four independent modelling attacks on one sign pair, none of which moved it:
+
+| attempt | result |
+|---|---|
+| 5× epochs, 4× parameters (§R.3) | train accuracy already 100% — no change |
+| partial-window training (§R.4) | pair unchanged, flicker worse |
+| six architectures compared (§R.1) | all within 1 point |
+| **ST-GCN (this section)** | **pair worse overall** |
+
+**Treat the pair as a data problem.** Those two signs are three times closer
+than any other pair in the corpus. The lever that has not been tried is
+recording more of them — which is also what §5 of the Task A report recommended
+before any of this was attempted.

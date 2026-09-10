@@ -121,6 +121,7 @@ class Gltf:
         self._accessor_cache: dict[int, np.ndarray] = {}
         self._image_cache: dict[int, Any] = {}
         self.outline_prims = 0     # how many outline shells were skipped
+        self.stray_prims = 0       # primitives too far from the skeleton
 
     # ── loading ──────────────────────────────────────────────────────
     @classmethod
@@ -378,8 +379,11 @@ class Gltf:
             "rightupperarm": ("rightarm", "rightupperarm", "upperarmr", "upper_armr"),
             "leftlowerarm": ("leftforearm", "leftlowerarm", "forearml", "lower_arml"),
             "rightlowerarm": ("rightforearm", "rightlowerarm", "forearmr", "lower_armr"),
-            "lefthand": ("lefthand", "handl", "hand_l"),
-            "righthand": ("righthand", "handr", "hand_r"),
+            # "wrist" is as common as "hand" for this bone — Blender and
+            # several VRChat rigs name it that way, with the fingers hanging
+            # off it exactly as they would off a hand.
+            "lefthand": ("lefthand", "handl", "hand_l", "wristl", "wrist_l"),
+            "righthand": ("righthand", "handr", "hand_r", "wristr", "wrist_r"),
         }
 
         def norm(s: str) -> str:
@@ -421,6 +425,14 @@ class Gltf:
         base = 0
         skin_index: Optional[int] = None
 
+        # Where the skeleton actually is, for the sanity check below. Taken
+        # from the first skin, which is the one we use.
+        first_skin = doc["skins"][0]
+        bone_pos = globals_[np.array(first_skin["joints"], dtype=np.int64)][:, :3, 3]
+        bone_centre = (bone_pos.min(axis=0) + bone_pos.max(axis=0)) / 2.0
+        bone_reach = float(np.linalg.norm(
+            bone_pos.max(axis=0) - bone_pos.min(axis=0))) + 1e-9
+
         for node_index, node in enumerate(doc.get("nodes", [])):
             if "mesh" not in node or "skin" not in node:
                 continue
@@ -456,6 +468,26 @@ class Gltf:
                       if "TEXCOORD_0" in attrs else np.zeros((n, 2)))
                 jnt = self.accessor(attrs["JOINTS_0"]).astype(np.int64)
                 wgt = self.accessor(attrs["WEIGHTS_0"]).astype(np.float64)
+
+                # Geometry that cannot belong to this skeleton.
+                #
+                # Some exports carry primitives whose POSITION is hundreds of
+                # units from every bone that drives them — bound to ordinary
+                # joints, but sitting nowhere near them, so at rest they fly
+                # off into space. One VRChat export puts three coat meshes
+                # 450 units below a figure 12 units tall. Their mesh node
+                # transform does not account for it either; the geometry is
+                # simply wrong in the file.
+                #
+                # Keeping them wrecks the whole view: they stretch the scene
+                # bounds by a factor of forty, which throws off framing and
+                # the decimation grid alike. The test is deliberately loose,
+                # at twice the skeleton's own diagonal, so it can only ever
+                # catch geometry that is unambiguously astray.
+                centre = np.median(pos, axis=0)
+                if np.linalg.norm(centre - bone_centre) > 2.0 * bone_reach:
+                    self.stray_prims += 1
+                    continue
 
                 if "indices" in prim:
                     tri = self.accessor(prim["indices"]).reshape(-1)

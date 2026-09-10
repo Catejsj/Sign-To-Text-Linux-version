@@ -57,20 +57,28 @@ const ARM_CHAIN = [
 const REQUIRED_JOINTS = ['l_shoulder', 'r_shoulder', 'l_elbow', 'r_elbow',
                          'l_wrist', 'r_wrist', 'nose'];
 
+/**
+ * Fallback bone matching, mirroring `gltf_min.guess_humanoid_bones`.
+ *
+ * Normally unused: the server sends `resolved_bones`, worked out by the
+ * Python matcher, which is the one `check_avatar.py` exercises. This table
+ * only runs if that is missing. Keeping two matchers in step failed twice,
+ * which is why the server now decides.
+ */
 const BONE_ALIASES = {
   hips: ['hips', 'pelvis'],
   spine: ['spine'],
-  chest: ['chest', 'upperchest'],
+  chest: ['chest', 'spine1', 'spine2'],
   neck: ['neck'],
   head: ['head'],
-  leftshoulder: ['leftshoulder', 'shoulderl'],
-  rightshoulder: ['rightshoulder', 'shoulderr'],
-  leftupperarm: ['leftupperarm', 'leftarm', 'upperarml'],
-  rightupperarm: ['rightupperarm', 'rightarm', 'upperarmr'],
-  leftlowerarm: ['leftlowerarm', 'leftforearm', 'forearml'],
-  rightlowerarm: ['rightlowerarm', 'rightforearm', 'forearmr'],
-  lefthand: ['lefthand', 'handl'],
-  righthand: ['righthand', 'handr'],
+  leftshoulder: ['leftshoulder', 'shoulderl', 'clavicle_l'],
+  rightshoulder: ['rightshoulder', 'shoulderr', 'clavicle_r'],
+  leftupperarm: ['leftarm', 'leftupperarm', 'upperarml', 'upper_arml'],
+  rightupperarm: ['rightarm', 'rightupperarm', 'upperarmr', 'upper_armr'],
+  leftlowerarm: ['leftforearm', 'leftlowerarm', 'forearml', 'lower_arml'],
+  rightlowerarm: ['rightforearm', 'rightlowerarm', 'forearmr', 'lower_armr'],
+  lefthand: ['lefthand', 'handl', 'hand_l', 'wristl', 'wrist_l'],
+  righthand: ['righthand', 'handr', 'hand_r', 'wristr', 'wrist_r'],
 };
 
 const normaliseName = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -264,7 +272,14 @@ class Rig {
         if (best !== -1) { out[bone] = best; break; }
       }
     }
-    // The sidecar overrides, because a person looked at this file.
+    // What the Python loader resolved, which outranks the guesses above:
+    // it is the matcher the tests cover, and it already folded in the VRM
+    // humanoid table when the file has one.
+    for (const [bone, name] of Object.entries(this.spec.resolved_bones || {})) {
+      const i = this._lookup(name);
+      if (i !== undefined) out[bone.toLowerCase()] = i;
+    }
+    // The sidecar overrides even that, because a person looked at this file.
     for (const [bone, name] of Object.entries(this.spec.bones || {})) {
       const i = this._lookup(name);
       if (i !== undefined) out[bone.toLowerCase()] = i;
@@ -536,12 +551,38 @@ export class AvatarView {
     this.root.updateMatrixWorld(true);
 
     this.rig = new Rig(this.root, spec);
+    // Until the first frame arrives the model sits at its authored rest pose,
+    // in its own units — which for a figure 12 units tall means the camera is
+    // looking at its shoes. Keep it hidden until it has been placed once.
+    this.root.visible = false;
+    this.posed = false;
 
-    let vertices = 0, outlines = 0;
+    // Where the skeleton is, so geometry that cannot belong to it can be
+    // spotted. Mirrors the same check in gltf_min.py — some exports carry
+    // primitives hundreds of units from every bone that drives them, which
+    // would otherwise stretch the view by a factor of forty.
+    const boneBox = new THREE.Box3();
+    this.rig.nodes.forEach((o, i) => {
+      if (o.isBone) boneBox.expandByPoint(this.rig.restPos[i]);
+    });
+    const boneCentre = boneBox.getCenter(new THREE.Vector3());
+    const boneReach = boneBox.getSize(new THREE.Vector3()).length() + 1e-9;
+
+    let vertices = 0, outlines = 0, stray = 0;
     const skeletons = new Set();
     this.root.traverse((o) => {
       if (o.isSkinnedMesh) {
         skeletons.add(o.skeleton);
+        // Geometry too far from the skeleton to belong to it. See the note
+        // in gltf_min.py; one VRChat export puts three coat meshes 450 units
+        // below a figure 12 units tall.
+        o.geometry.computeBoundingBox();
+        const c = o.geometry.boundingBox.getCenter(new THREE.Vector3());
+        if (c.distanceTo(boneCentre) > 2.0 * boneReach) {
+          o.visible = false;
+          stray++;
+          return;
+        }
         const mats0 = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
         if (!mats0.some((m) => isOutlineMaterial(m.name))) {
           vertices += o.geometry.attributes.position.count;
@@ -584,12 +625,12 @@ export class AvatarView {
     });
 
     this.skeletons = [...skeletons];
-    this.handRadius = this.rig.restShoulderWidth * 0.055;
     return {
       vertices,
       outlines,
+      stray,
       bones: Object.keys(this.rig.bones).length,
-      sidecar: Object.keys(spec).length > 0,
+      sidecar: !!(spec.bones || spec.chain_parents),
     };
   }
 
@@ -607,10 +648,19 @@ export class AvatarView {
 
     if (this.rig.solve(joints)) {
       for (const s of this.skeletons) s.update();
+      if (!this.posed) { this.posed = true; this.root.visible = true; }
     }
     if (this.showHands) {
-      this.handL.update(f.lhand, this.handRadius);
-      this.handR.update(f.rhand, this.handRadius);
+      // Size the rig from the SCENE shoulder width, not the model's own rest
+      // width. The hands are drawn in scene coordinates while the model may
+      // be authored at any scale — this one is 1.2 units across where the
+      // scene is 0.4, which drew the landmarks three times too large and
+      // merged them into blobs.
+      const ls = joints.l_shoulder, rs = joints.r_shoulder;
+      const span = Math.hypot(ls[0] - rs[0], ls[1] - rs[1], ls[2] - rs[2]);
+      const radius = span * 0.045;
+      this.handL.update(f.lhand, radius);
+      this.handR.update(f.rhand, radius);
     } else {
       this.handL.setVisible(false);
       this.handR.setVisible(false);

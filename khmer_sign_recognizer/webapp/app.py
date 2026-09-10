@@ -197,23 +197,55 @@ def create_app(state: AppState) -> Flask:
         return send_file(path, mimetype="model/gltf-binary",
                          conditional=True)
 
+    _rig_cache: dict = {}
+
     @app.get("/api/avatar/rig")
     def api_avatar_rig():
-        """The `<model>.rig.json` sidecar, or `{}` when there is not one.
+        """The rig description for the browser viewer.
 
-        The browser viewer applies the same bone map and chain re-parenting
-        as the desktop one, so a rig described once works in both.
+        Returns the `<model>.rig.json` sidecar plus `resolved_bones`: the
+        humanoid bone map as Python worked it out, by node name.
+
+        Resolving bones in one place is the point. Both viewers used to match
+        bone names independently and they drifted twice — once on an
+        Auto-Rig Pro rig calling the upper arm `arm.l`, once on a VRChat rig
+        calling the forearm `Lower_Arm_L`, each time working in Python and
+        failing silently in the browser. The Python matcher is the one
+        `check_avatar.py` exercises, so it is the one that decides; the
+        browser keeps its own table only as a fallback for when this fails.
         """
         path = avatar_file()
         if path is None:
             return jsonify({})
+
+        spec: dict = {}
         sidecar = Path(str(path) + ".rig.json")
-        if not sidecar.exists():
-            return jsonify({})
-        try:
-            return jsonify(json.loads(sidecar.read_text(encoding="utf-8")))
-        except json.JSONDecodeError as exc:
-            return jsonify(error=f"{sidecar.name} is not valid JSON: {exc}"), 400
+        if sidecar.exists():
+            try:
+                spec = json.loads(sidecar.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                return jsonify(
+                    error=f"{sidecar.name} is not valid JSON: {exc}"), 400
+
+        key = (str(path), path.stat().st_mtime_ns)
+        if key not in _rig_cache:
+            _rig_cache.clear()          # only ever one avatar at a time
+            try:
+                from src.gltf_min import Gltf
+                gltf = Gltf.load(path)
+                bones = gltf.humanoid_bones() or gltf.guess_humanoid_bones()
+                nodes = gltf.doc.get("nodes", [])
+                _rig_cache[key] = {
+                    b: nodes[i].get("name", "")
+                    for b, i in bones.items()
+                    if 0 <= i < len(nodes) and nodes[i].get("name")
+                }
+            except Exception:
+                # Never fail the page over this — the browser can still fall
+                # back to its own name matching.
+                _rig_cache[key] = {}
+        spec["resolved_bones"] = _rig_cache[key]
+        return jsonify(spec)
 
     # ── deletion (record mode only) ──
     @app.delete("/api/takes")

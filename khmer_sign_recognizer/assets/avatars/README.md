@@ -50,6 +50,20 @@ takes to skin. If it says `UNUSABLE`, the message says what is missing.
 * **no mesh compression.** Draco and meshopt are detected and reported, not
   decoded. Re-export with compression off.
 
+## Broken geometry is dropped
+
+Some exports carry primitives hundreds of units from every bone that drives
+them — bound to ordinary joints, but sitting nowhere near them, so at rest
+they fly off into space. The VRChat Elaina puts three coat meshes 450 units
+below a figure 12 units tall, and their mesh node transform does not account
+for it either; the geometry is simply wrong in the file.
+
+Anything whose centre lies more than twice the skeleton's own diagonal from
+the skeleton is skipped, and `check_avatar.py` says how many. Left in, it
+stretches the scene bounds by a factor of forty, which wrecks the framing and
+collapses the decimation grid — the character ends up an unrecognisable
+smear rather than obviously broken.
+
 ## Two things the loader does to toon models on purpose
 
 **Outline shells are dropped, in both viewers.** Anime models ship a second
@@ -108,7 +122,9 @@ errors; a correct one reports `0.00° error`. That check exists because a
 flat rig poses without any error at all and is only wrong once it moves.
 
 `elaina_-_the_witchs_journey.glb.rig.json` in this folder is a worked example
-— an Auto-Rig Pro rig exported through Sketchfab, needing both maps.
+— an Auto-Rig Pro rig exported through Sketchfab, needing both maps. **The
+model it describes is no longer here**; the file is kept because working a rig
+out is the slow part, and this is the only complete example of doing it.
 
 ## What is driven, and what is not
 

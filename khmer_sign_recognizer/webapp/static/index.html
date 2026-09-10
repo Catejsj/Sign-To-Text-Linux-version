@@ -1475,6 +1475,7 @@
         const bits = [`${(info.vertices / 1000).toFixed(0)}k vertices`,
                       `${info.bones} bones`];
         if (info.outlines) bits.push(`${info.outlines} outline shells skipped`);
+        if (info.stray) bits.push(`${info.stray} stray meshes skipped`);
         if (info.sidecar) bits.push('rig from sidecar');
         say(bits.join(' · ') + ' — full detail, skinned on the GPU.');
         label.textContent = 'Hide avatar';

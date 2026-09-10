@@ -441,6 +441,9 @@ def inspect(path: Path, max_vertices: int) -> int:
     if gltf.outline_prims:
         print(f"  outline shells {gltf.outline_prims} primitives skipped — "
               f"toon outlines, not geometry")
+    if gltf.stray_prims:
+        print(f"  stray geometry {gltf.stray_prims} primitives skipped — "
+              f"too far from the skeleton to belong to it")
 
     print(f"\n  vertices      {mesh.n_vertices}"
           f"  (cap {max_vertices})")

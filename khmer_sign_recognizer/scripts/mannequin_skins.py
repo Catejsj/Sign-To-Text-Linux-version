@@ -45,6 +45,13 @@ AVATAR_SUFFIXES = (".vrm", ".glb", ".gltf")
 SKINS = ("classic", "anime")
 DEFAULT_SKIN = "classic"
 
+# Skinning is linear in vertices and runs on the main thread, next to camera
+# capture and pose estimation. Measured on a 200k-vertex character: 24k costs
+# 13 ms/frame, 40k costs 18 ms, 100k costs 42 ms. 40k is the point where the
+# face and hat edges are crisp and there is still room in a 33 ms frame.
+# Raise it with --max-vertices if your machine has the headroom.
+DEFAULT_MAX_VERTICES = 40000
+
 # Loading and colour-baking a VRM costs a second or two, and the engine builds
 # up to four mannequins at once. Parse each file once and share the geometry;
 # every instance still gets its own Open3D buffers to write into.
@@ -125,7 +132,7 @@ class AnimeMannequin:
     """
 
     def __init__(self, avatar: Optional[str | Path] = None,
-                 max_vertices: int = 24000, hand_scale: float = 0.0,
+                 max_vertices: int = DEFAULT_MAX_VERTICES, hand_scale: float = 0.0,
                  body_scale: float = 1.0):
         path = find_avatar(avatar)
         if path is None:
@@ -206,7 +213,7 @@ def _make_hand() -> o3d.geometry.LineSet:
 def make_mannequin(skin: str = DEFAULT_SKIN, *,
                    avatar: Optional[str | Path] = None,
                    body_scale: float = 1.0,
-                   max_vertices: int = 24000):
+                   max_vertices: int = DEFAULT_MAX_VERTICES):
     """Build one figure of the requested skin.
 
     Raises `AvatarUnavailable` for `anime` with no usable file — callers are

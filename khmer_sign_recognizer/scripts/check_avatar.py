@@ -215,7 +215,10 @@ def selftest() -> int:
 
         # ── the retargeting ──────────────────────────────────────────
         # hand_scale=1 keeps the hand bones, so the hand vertex is testable.
-        rig = AvatarRig(mesh, bones, hand_scale=1.0)
+        # mirror=False feeds the rig scene coordinates in the SAME handedness
+        # as the model; the mirrored capture convention is checked separately
+        # below, because it is a property of body_to_3d and not of the math.
+        rig = AvatarRig(mesh, bones, hand_scale=1.0, mirror=False)
 
         # 1. Rest in, rest out. Feed the rig its own rest pose as the scene
         #    and every vertex must come back untouched.
@@ -273,7 +276,33 @@ def selftest() -> int:
         check("avatar rescales to the signer", got < 1e-6, f"off by {got:.2e}")
 
         # 5. Hands collapse when asked, so the landmark rig can stand in.
-        rig_nohands = AvatarRig(mesh, bones, hand_scale=0.0)
+        # 4b. Facing. This is the one that a symmetric mannequin cannot show.
+        #     Real capture puts the signer's anatomical LEFT at NEGATIVE x
+        #     (body_to_3d negates x "so it mirrors you") while they still face
+        #     +z. Build that frame and check the avatar ends up facing the
+        #     camera rather than turning its back.
+        capture = {
+            "l_shoulder": np.array([-0.20, 1.00, 0.0]),   # left, image-right
+            "r_shoulder": np.array([0.20, 1.00, 0.0]),
+            "l_elbow": np.array([-0.36, 0.78, 0.05]),
+            "r_elbow": np.array([0.36, 0.78, 0.05]),
+            "l_wrist": np.array([-0.30, 0.55, 0.25]),
+            "r_wrist": np.array([0.30, 0.55, 0.25]),
+            "nose": np.array([0.0, 1.20, 0.05]),
+        }
+        rig_mirror = AvatarRig(mesh, bones, hand_scale=1.0, mirror=True)
+        frame = rig_mirror.scene_transform(capture)
+        forward = frame[0] @ np.array([0.0, 0.0, 1.0])   # avatar +z in scene
+        check("avatar faces the camera under capture handedness",
+              forward[2] > 0.9,
+              f"model forward maps to z={forward[2]:+.2f} (want +1)")
+
+        turned = AvatarRig(mesh, bones, hand_scale=1.0, mirror=False)
+        back = turned.scene_transform(capture)[0] @ np.array([0.0, 0.0, 1.0])
+        check("mirror=False is what turned it around", back[2] < -0.9,
+              f"z={back[2]:+.2f} — this was the bug")
+
+        rig_nohands = AvatarRig(mesh, bones, hand_scale=0.0, mirror=False)
         posed_nh, _ = rig_nohands.pose(scene_rest)
         moved = float(np.linalg.norm(
             posed_nh[list(_REST).index("lefthand")]
@@ -361,6 +390,10 @@ def inspect(path: Path, max_vertices: int) -> int:
     except GltfError as exc:
         print(f"\n  Cannot build geometry: {exc}")
         return 1
+
+    if gltf.outline_prims:
+        print(f"  outline shells {gltf.outline_prims} primitives skipped — "
+              f"toon outlines, not geometry")
 
     print(f"\n  vertices      {mesh.n_vertices}"
           f"  (cap {max_vertices})")
@@ -485,7 +518,9 @@ def main() -> None:
                     help="a .vrm / .glb / .gltf file to inspect")
     ap.add_argument("--selftest", action="store_true",
                     help="verify the retargeting math on a synthetic rig")
-    ap.add_argument("--max-vertices", type=int, default=24000)
+    ap.add_argument("--max-vertices", type=int, default=40000,
+                    help="skinning budget. Higher is crisper and slower; the\n"
+                         "report prints the per-frame cost.")
     ap.add_argument("--write-rig-template", action="store_true",
                     help="emit a starter <model>.rig.json to describe bones "
                          "the automatic matcher could not identify")

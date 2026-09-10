@@ -39,6 +39,21 @@ takes to skin. If it says `UNUSABLE`, the message says what is missing.
 * **no mesh compression.** Draco and meshopt are detected and reported, not
   decoded. Re-export with compression off.
 
+## Two things the loader does to toon models on purpose
+
+**Outline shells are dropped.** Anime models ship a second, slightly inflated
+copy of the body painted near-black, drawn with front faces culled so only its
+inside shows — that dark rim is the cartoon outline. Open3D does not cull that
+way, so left in, the shell renders as an opaque black skin and the character
+vanishes inside it at full detail. Materials named `*_Line` or `*outline*` are
+skipped. On a typical model that is half the vertices, and half the per-frame
+cost, for something that should never have been drawn.
+
+**Colour is read from the emissive channel when base colour is black.** Toon
+and unlit materials set base colour to pure black and put the artwork in
+emissive so a lit renderer cannot darken it. Read as base colour you get a
+black silhouette.
+
 VRM files carry a humanoid bone table, so they map automatically. A plain
 `.glb` has no such table and the loader falls back to matching bone *names* —
 Mixamo, Blender and VRoid naming all work, but `check_avatar.py` will show you
@@ -61,6 +76,7 @@ them:
 |---|---|
 | `bones` | the matcher picked the wrong node, or none. Rigs that call the upper arm `arm.l`, or bury it among 70 IK/FK controls, land here. |
 | `chain_parents` | the export **flattened** the skeleton — the bones carrying skin weight are all parented to one root instead of to each other, so rotating the upper arm leaves the forearm behind. List `child: parent` to rejoin the chain. |
+| `mirror` | defaults to `true`, and should almost never be changed. The capture mirrors you left-for-right on purpose, so the avatar faces you like a reflection. Set `false` only if a model somehow ends up facing away. |
 
 `chain_parents` changes only what *inherits* motion; rest positions are read
 from the file and are unaffected.

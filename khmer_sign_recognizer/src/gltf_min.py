@@ -57,6 +57,27 @@ _NORM_MAX = {np.int8: 127.0, np.uint8: 255.0,
 _UNSUPPORTED_EXT = ("KHR_draco_mesh_compression", "EXT_meshopt_compression")
 
 
+def is_outline_material(name: str) -> bool:
+    """Is this material an inverted-hull outline shell?
+
+    Toon models ship a second copy of the body, slightly inflated and painted
+    near-black, drawn with FRONT faces culled so only its inside surface
+    shows — that dark rim is the cartoon outline. Open3D does not cull that
+    way, so the shell renders as an opaque black skin over the character; at
+    full detail the model disappears entirely inside it.
+
+    It is a rendering trick, not geometry, so we drop it. On a VRoid-style
+    export this is typically half the vertices, which is also half the
+    skinning cost per frame for something that should never have been drawn.
+
+    Matching on `_Line` and `outline` covers the VRoid / MToon / Blender toon
+    conventions. The `_line` test requires the underscore so that a material
+    legitimately called `eyeliner` survives.
+    """
+    n = name.lower()
+    return n.endswith("_line") or "outline" in n
+
+
 class GltfError(RuntimeError):
     """The file is not glTF we can read. The message says what to do."""
 
@@ -99,6 +120,7 @@ class Gltf:
         self.base = base
         self._accessor_cache: dict[int, np.ndarray] = {}
         self._image_cache: dict[int, Any] = {}
+        self.outline_prims = 0     # how many outline shells were skipped
 
     # ── loading ──────────────────────────────────────────────────────
     @classmethod
@@ -413,6 +435,11 @@ class Gltf:
                     continue   # not triangles
                 attrs = prim.get("attributes", {})
                 if "POSITION" not in attrs or "JOINTS_0" not in attrs:
+                    continue
+                if "material" in prim and is_outline_material(
+                        doc.get("materials", [])[prim["material"]]
+                        .get("name", "")):
+                    self.outline_prims += 1
                     continue
 
                 # A skinned primitive's POSITION is already in the skinning

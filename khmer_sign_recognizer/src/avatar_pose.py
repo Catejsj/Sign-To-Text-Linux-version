@@ -104,10 +104,12 @@ class AvatarRig:
 
     def __init__(self, mesh: SkinnedMesh, bones: dict[str, int],
                  hand_scale: float = 0.0,
-                 chain_parents: Optional[dict[int, int]] = None):
+                 chain_parents: Optional[dict[int, int]] = None,
+                 mirror: bool = True):
         self.mesh = mesh
         self.bones = bones
         self.hand_scale = float(hand_scale)
+        self.mirror = bool(mirror)
 
         missing = [b for b in ("leftupperarm", "rightupperarm",
                                "leftlowerarm", "rightlowerarm",
@@ -247,11 +249,28 @@ class AvatarRig:
         if width < 1e-9:
             return None
 
-        up = neck - joints["nose"]        # nose is above the neck, so negate
-        up = -up
+        up = joints["nose"] - neck        # the nose sits above the shoulders
         if np.linalg.norm(up) < 1e-9:
             up = np.array([0.0, 1.0, 0.0])
-        scene_basis = _basis(l_sh - r_sh, up)
+
+        # `cross(toward-the-left, up)` is the forward direction in any
+        # RIGHT-handed frame — which is how `_basis` derives the avatar's
+        # facing from its own bones, with no need to know whether the model
+        # was authored facing +Z or -Z.
+        #
+        # Scene space is not right-handed with respect to anatomy. body_to_3d
+        # negates x on purpose, "so it mirrors you", which reflects the frame:
+        # a signer facing the camera has their anatomical left at NEGATIVE x
+        # while still facing +z. Taking the cross product there yields a
+        # forward pointing away from the camera, and aligning the avatar to it
+        # turns the avatar's back to the viewer.
+        #
+        # Negating the side axis undoes the reflection. The avatar then faces
+        # the camera and mirrors the signer left-for-right, matching what the
+        # capsule mannequin has always done — you cannot see it on a symmetric
+        # figure, but a character with a front and a back shows it immediately.
+        side = (r_sh - l_sh) if self.mirror else (l_sh - r_sh)
+        scene_basis = _basis(side, up)
 
         rotation = scene_basis @ self._avatar_basis.T
         scale = width / self.rest_shoulder_width
@@ -412,7 +431,7 @@ def load_rig_spec(path) -> dict:
     return spec
 
 
-def load_rig(path, max_vertices: int = 24000,
+def load_rig(path, max_vertices: int = 40000,
              hand_scale: float = 0.0) -> AvatarRig:
     """Load a `.vrm` / `.glb` / `.gltf` and prepare it for posing.
 
@@ -451,4 +470,5 @@ def load_rig(path, max_vertices: int = 24000,
     }
 
     return AvatarRig(mesh, bones, hand_scale=hand_scale,
-                     chain_parents=chain_parents)
+                     chain_parents=chain_parents,
+                     mirror=bool(spec.get("mirror", True)))

@@ -49,9 +49,17 @@ try:
     from scripts.mannequin_local import (                              # noqa: E402
         Mannequin, retarget_scene, body_to_3d, hand_to_3d,
     )
+    from scripts.mannequin_skins import (                              # noqa: E402
+        SKINS, DEFAULT_SKIN, AvatarUnavailable, avatar_status, make_mannequin,
+    )
     HAS_OPEN3D = True
 except ImportError:
+    SKINS, DEFAULT_SKIN = ("classic", "anime"), "classic"
     HAS_OPEN3D = False
+
+    def avatar_status(explicit=None) -> dict:                          # noqa: E302
+        return {"available": False, "name": None,
+                "hint": "Open3D is not installed, so there is no 3D view."}
 
 CAM_WINDOW = "SignLink — Camera + Mannequin"
 
@@ -76,6 +84,11 @@ class RecorderEngine:
         self.desired_mannequin = 1 if HAS_OPEN3D else 0
         # which panes the native window shows: "both" | "camera" | "mannequin"
         self.view = "both"
+        # which body the 3D view draws: "classic" | "anime"
+        self.skin = DEFAULT_SKIN
+        # Set when an anime build failed, so the UI can say why instead of
+        # silently showing the classic figure and looking broken.
+        self.skin_error = ""
 
         # ── recording state (owned by tick / main thread) ──
         self.state = "IDLE"
@@ -102,6 +115,7 @@ class RecorderEngine:
         self.synths: list[tuple] = []
         self.current_mannequin = 0
         self.current_view = "both"
+        self.current_skin = DEFAULT_SKIN
         self.running = False
 
     # ── lifecycle (main thread) ──────────────────────────────────────
@@ -175,9 +189,13 @@ class RecorderEngine:
     def _build_mannequins(self, n: int) -> None:
         if not HAS_OPEN3D or n <= 0:
             self.current_mannequin = 0
+            with self.lock:
+                self.current_skin = self.skin   # nothing built, but agreed
             return
         spacing = 2.6
         xs = (np.arange(n) - (n - 1) / 2.0) * spacing
+        with self.lock:
+            skin = self.skin
         self.synths = []
         for i in range(n):
             body = dict(
@@ -187,7 +205,22 @@ class RecorderEngine:
                 hd=float(self.rng.uniform(0.80, 1.20)),
                 xoff=float(xs[i]),
             )
-            self.synths.append((Mannequin(), body))
+            try:
+                figure = make_mannequin(
+                    skin, body_scale=float(self.rng.uniform(0.85, 1.15)))
+            except AvatarUnavailable as exc:
+                # A cosmetic setting must never take a recording session down.
+                # Fall back to the classic body and tell the UI why.
+                with self.lock:
+                    self.skin_error = str(exc)
+                    self.skin = DEFAULT_SKIN
+                skin = DEFAULT_SKIN
+                figure = make_mannequin(DEFAULT_SKIN)
+            self.synths.append((figure, body))
+        with self.lock:
+            if skin == self.skin:
+                self.skin_error = ""
+        self.current_skin = skin
         self.vis = o3d.visualization.Visualizer()
         self.vis.create_window("SignLink mannequin (offscreen)",
                                width=MANNEQUIN_W, height=MANNEQUIN_H,
@@ -234,8 +267,12 @@ class RecorderEngine:
                 self.language = language
 
     def set_config(self, mannequin=None, synthetic=None, duration=None,
-                   view=None) -> None:
+                   view=None, skin=None) -> None:
         with self.lock:
+            if skin in SKINS:
+                if skin != self.skin:
+                    self.skin_error = ""   # a fresh choice deserves a retry
+                self.skin = skin
             if mannequin is not None:
                 self.desired_mannequin = max(0, int(mannequin))
             if synthetic is not None:
@@ -352,7 +389,9 @@ class RecorderEngine:
                     "synthetic": self.synthetic,
                     "duration": self.duration,
                     "view": self.view,
+                    "skin": self.skin,
                 },
+                "avatar": {**avatar_status(), "error": self.skin_error},
             }
 
     # ── per-frame update (main thread) ───────────────────────────────
@@ -360,13 +399,15 @@ class RecorderEngine:
         if not self.running or self.capture is None:
             return
 
-        # apply pending view / mannequin-count changes (o3d must run here)
+        # apply pending view / mannequin-count / skin changes (o3d must run here)
         with self.lock:
             view = self.view
             desired = self.desired_mannequin
+            skin = self.skin
         needed = self._needed_mannequin(view, desired)
-        if needed != self.current_mannequin or view != self.current_view:
-            if needed != self.current_mannequin:
+        if (needed != self.current_mannequin or view != self.current_view
+                or skin != self.current_skin):
+            if needed != self.current_mannequin or skin != self.current_skin:
                 self._teardown_mannequins()
                 self._build_mannequins(needed)
             self.current_view = view

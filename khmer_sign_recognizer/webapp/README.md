@@ -29,6 +29,24 @@ worker. Keep it that way.
 **Screenshot it after any CSS change.** A dark-mode contrast bug shipped twice
 here and was invisible in the source both times.
 
+## The Body toggle
+
+**Configuration → Body** switches the 3D figure between the capsule mannequin
+and a rigged VRM from `assets/avatars/`. It is a display setting — it changes
+nothing that gets recorded or trained.
+
+Two things here are easy to get wrong:
+
+1. **The state poll is faster than the config debounce.** A poll landing
+   between the click and the POST used to echo the server's stale skin back
+   over the user's choice, so the request went out with the old value.
+   `skinGuardUntil` holds the poll off for 4 s, ending early if the engine
+   reports an error. Any other optimistic control needs the same guard.
+2. **A failed avatar load must not take the session down.** `_build_mannequins`
+   catches `AvatarUnavailable`, falls back to `classic`, and puts the reason in
+   `engine.skin_error`, which the hint line under the toggle renders in the
+   warning colour. That hint is the only place the user learns it happened.
+
 ## Recognize mode
 
 Mid-sign predictions come from a sliding window holding a *partial* sign and

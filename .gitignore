@@ -31,3 +31,8 @@ desktop.ini
 .idea/
 *.swp
 *~
+
+# Avatar models — tens of MB each, and each carries its own licence.
+# The folder's README is tracked; the models are not.
+khmer_sign_recognizer/assets/avatars/*
+!khmer_sign_recognizer/assets/avatars/README.md

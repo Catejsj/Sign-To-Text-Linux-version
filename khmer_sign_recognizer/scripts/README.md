@@ -7,7 +7,9 @@ every one takes `--help`. Full usage: [docs/guides/COMMANDS.md](../docs/guides/C
 | | |
 |---|---|
 | `record_session.py` | CLI recorder. The web panel (`./run_web.sh`) is the usual way in; this is for remote machines or scripted sessions. |
-| `mannequin_local.py` | 3D viewer and playback. `--playback` replays saved takes with no camera — the quickest way to confirm an import looks like the sign. |
+| `mannequin_local.py` | 3D viewer and playback. `--playback` replays saved takes with no camera — the quickest way to confirm an import looks like the sign. `--skin anime` wears a rigged VRM instead of the capsule figure. |
+| `mannequin_skins.py` | Not a command. The two bodies the 3D view can draw (`classic`, `anime`) behind one interface, so either caller can swap them at runtime. |
+| `check_avatar.py` | Inspect a `.vrm`/`.glb` before using it, or `--selftest` the retargeting math on a synthetic rig. Needs no camera and no display. |
 
 ## Before you share data
 | | |

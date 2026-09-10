@@ -379,6 +379,19 @@
     }
     .slider-group.disabled { opacity: .38; pointer-events: none; }
 
+    /* Sits under the Body toggle: names the loaded avatar, or says how to
+       supply one. Warning-toned only when a file was found but rejected. */
+    .skin-hint {
+      font-size: 12px; line-height: 1.45; margin-top: 9px;
+      color: var(--text-secondary);
+    }
+    .skin-hint:empty { display: none; }
+    .skin-hint.warn { color: var(--warning); }
+    .skin-hint code {
+      font-family: var(--mono, ui-monospace, monospace); font-size: 11px;
+      background: var(--primary-soft); padding: 1px 5px; border-radius: 4px;
+    }
+
     .info-note {
       font-size: 13px; color: var(--text-secondary);
       background: var(--primary-soft);
@@ -777,6 +790,15 @@
           </div>
         </div>
 
+        <div class="slider-group" id="skin-group">
+          <div class="slider-header"><span>Body</span></div>
+          <div class="segmented-toggle" id="skin-toggle">
+            <button data-skin="classic" class="active"><span class="material-symbols-rounded">accessibility_new</span>Classic</button>
+            <button data-skin="anime"><span class="material-symbols-rounded">face_retouching_natural</span>Anime</button>
+          </div>
+          <div class="skin-hint" id="skin-hint"></div>
+        </div>
+
         <div class="slider-group" id="mannequin-group">
           <div class="slider-header"><span>Mannequins</span><span class="slider-val tabular-nums" id="val-mannequin">1</span></div>
           <input type="range" id="slide-mannequin" min="0" max="4" step="1" value="1">
@@ -924,6 +946,7 @@
     let currentLang = '';
     let currentSigner = 'me';
     let currentView = 'both';
+    let currentSkin = 'classic';
     let hasOpen3d = true;
     let initialized = false;
     let lastSavedCount = 0;
@@ -1081,6 +1104,7 @@
           synthetic: Number($('slide-synthetic').value),
           duration: Number($('slide-duration').value),
           view: currentView,
+          skin: currentSkin,
           signer: currentSigner || 'me',
           lang: currentLang,
         });
@@ -1094,14 +1118,43 @@
 
     const applyViewUI = () => {
       document.querySelectorAll('#view-toggle button').forEach(x => x.classList.toggle('active', x.dataset.view === currentView));
-      // mannequin count is irrelevant in camera-only view
-      $('mannequin-group').classList.toggle('disabled', currentView === 'camera' || !hasOpen3d);
+      // mannequin count and body style are irrelevant in camera-only view
+      const noModel = currentView === 'camera' || !hasOpen3d;
+      $('mannequin-group').classList.toggle('disabled', noModel);
+      $('skin-group').classList.toggle('disabled', noModel);
+      document.querySelectorAll('#skin-toggle button').forEach(x => x.classList.toggle('active', x.dataset.skin === currentSkin));
     };
     $('view-toggle').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.disabled) return;
       currentView = b.dataset.view; applyViewUI(); pushConfig();
     });
+    /* The state poll is faster than the config debounce, so a poll landing
+       between the click and the POST would echo the server's stale value back
+       over the user's choice — and the POST would then send the old skin.
+       Hold the poll off until the engine has had time to answer. */
+    let skinGuardUntil = 0;
+    $('skin-toggle').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b || b.disabled) return;
+      if (b.dataset.skin === currentSkin) return;
+      currentSkin = b.dataset.skin;
+      skinGuardUntil = Date.now() + 4000;   // long enough to load a big VRM
+      applyViewUI(); pushConfig();
+    });
+
+    /* The engine falls back to the classic body when an avatar cannot be
+       loaded, so this line is the only place the user learns that happened. */
+    const applyAvatarUI = (av) => {
+      if (!av) return;
+      const hint = $('skin-hint');
+      if (av.error) { hint.className = 'skin-hint warn'; hint.textContent = av.error; return; }
+      hint.className = 'skin-hint';
+      if (av.available) {
+        hint.textContent = currentSkin === 'anime' ? `Using ${av.name}` : `${av.name} ready`;
+      } else {
+        hint.innerHTML = 'No avatar loaded — drop a <code>.vrm</code> into <code>assets/avatars/</code> and reload.';
+      }
+    };
 
 
     /* ── recognize mode ── */
@@ -1222,9 +1275,11 @@
         $('slide-synthetic').value = c.synthetic ?? 0; $('val-synthetic').textContent = c.synthetic ?? 0;
         $('slide-duration').value = c.duration ?? 3; $('val-duration').textContent = Number(c.duration ?? 3).toFixed(1);
         currentView = c.view || 'both';
+        currentSkin = c.skin || 'classic';
         currentSigner = e.signer || 'me'; $('signer-input').value = currentSigner;
         if (!hasOpen3d) {
           $('slide-mannequin').disabled = true;
+          document.querySelector('#skin-toggle button[data-skin="anime"]').disabled = true;
           document.querySelector('#view-toggle button[data-view="both"]').disabled = true;
           document.querySelector('#view-toggle button[data-view="mannequin"]').disabled = true;
           if (currentView !== 'camera') currentView = 'camera';
@@ -1234,6 +1289,15 @@
         lastSavedCount = e.session_take_count || 0;
         loadLabels();
       }
+      // The engine reverts to the classic body if an avatar fails to load, so
+      // trust its value over ours rather than leaving Anime lit up. A reported
+      // error means the revert already happened, which ends the guard early.
+      const serverSkin = (e.config || {}).skin;
+      const settled = Date.now() > skinGuardUntil || !!(e.avatar || {}).error;
+      if (serverSkin && serverSkin !== currentSkin && settled) {
+        currentSkin = serverSkin; applyViewUI();
+      }
+      applyAvatarUI(e.avatar);
       // a take just landed -> refresh counts
       if ((e.session_take_count || 0) > lastSavedCount) { lastSavedCount = e.session_take_count; loadLabels(); refreshLangs(); }
     };

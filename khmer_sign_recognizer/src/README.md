@@ -9,6 +9,12 @@ be run directly except `src.v2.train`.
 | `capture.py` | Camera + MediaPipe + RTMPose. Picks the camera backend and GPU provider per platform. Attaches a per-joint confidence to every landmark. |
 | `cuda_setup.py` | Preloads the CUDA libraries ONNX Runtime needs. Without it ONNX silently runs on CPU — see PROBLEM_LOG §A3. |
 | `utils.py` | Config loading and logging. |
+| `gltf_min.py` | A glTF 2.0 / GLB / VRM reader in numpy alone — accessors, node hierarchy, skin weights, the VRM humanoid bone table. Display-only; no model input touches it. |
+| `avatar_pose.py` | Aims a humanoid rig at our six body joints and returns skinning matrices. No IK: knowing where every arm joint *is* reduces the problem to rotating each bone onto a known direction. |
+
+`check_avatar.py --selftest` proves both of those against a synthetic rig.
+Run it after editing either — a flipped matrix convention is invisible in the
+live window and obvious in the test.
 
 **`src/v2/` sits on top of these — it does not replace them.**
 

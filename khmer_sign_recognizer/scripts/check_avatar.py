@@ -371,6 +371,21 @@ def inspect(path: Path, max_vertices: int) -> int:
     print(f"  meshes        {len(gltf.doc.get('meshes', []))}")
     print(f"  skins         {len(gltf.doc.get('skins', []))}")
 
+    # Check for a skeleton before anything else. Without one there are no
+    # bones to name, and reporting "missing arm bones" sends you hunting for
+    # a naming problem that does not exist.
+    if not gltf.doc.get("skins"):
+        print("\n  UNUSABLE — this file has no skeleton.")
+        print("  It is a static sculpt: geometry, materials and textures, but")
+        print("  no bones and no skin weights, so there is nothing to pose.")
+        print("  Sketchfab serves many models this way even when the original")
+        print("  was rigged.")
+        print("\n  You need a model that is *rigged*. A VRM from VRoid Studio")
+        print("  always is; on Sketchfab, look for a model whose viewer has an")
+        print("  animation timeline, since that only appears when there is a")
+        print("  skeleton.")
+        return 1
+
     vrm_bones = gltf.humanoid_bones()
     if vrm_bones:
         source = "VRM humanoid table"

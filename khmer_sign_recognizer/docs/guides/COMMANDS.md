@@ -210,9 +210,20 @@ python scripts/mannequin_local.py --playback data/sequences_v2/khmer_var --count
 
 `--view noisy` shows the raw image-space view instead of the normalised one.
 
-### Wearing an anime avatar
+### The avatar, in the browser
 
-The 3D figure has two skins. `classic` is the tan capsule mannequin; `anime`
+`./run_web.sh` → the **3D view** card → **Show avatar**. This is the good one:
+three.js renders the character on the GPU, so it draws at full detail with its
+real textures instead of the decimated, vertex-coloured version the desktop
+window manages. Only the landmarks cross the wire; the retargeting runs in the
+page.
+
+It needs a model in `assets/avatars/` — the same one the desktop skin uses,
+and the same `<model>.rig.json` if the rig needed describing.
+
+### Wearing an anime avatar in the desktop window
+
+The desktop 3D figure has two skins. `classic` is the tan capsule mannequin; `anime`
 is a rigged VRM/glTF character posed by the same joints. Switch it in the web
 panel under **Configuration → Body**, or from the command line:
 

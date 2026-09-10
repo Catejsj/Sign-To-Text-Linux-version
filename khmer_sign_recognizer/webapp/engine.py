@@ -118,6 +118,13 @@ class RecorderEngine:
         self.current_skin = DEFAULT_SKIN
         self.running = False
 
+        # ── landmark feed for the browser 3D view ──
+        # `seq` lets the page skip re-rendering a frame it already drew, which
+        # is what stops a fast poll from burning GPU on duplicates.
+        self._landmark_seq = 0
+        self.latest_landmarks: dict = {"seq": 0, "joints": {},
+                                       "lhand": None, "rhand": None}
+
     # ── lifecycle (main thread) ──────────────────────────────────────
     def start(self, mannequins: bool = True) -> bool:
         """Open the camera and the native window.
@@ -434,6 +441,9 @@ class RecorderEngine:
 
         self._advance_state(pose, lh, rh, now)
 
+        if has_pose:
+            self.publish_landmarks(pose, lh, rh)
+
         # render the mannequin pane (still driven by the camera pose even when
         # the camera itself is hidden)
         mann = None
@@ -552,7 +562,14 @@ class RecorderEngine:
         width = max(1, int(img.shape[1] * height / img.shape[0]))
         return cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
 
-    def _update_mannequins(self, pose: dict, lh: dict, rh: dict) -> None:
+    def scene_from_pose(self, pose: dict, lh: dict, rh: dict):
+        """Camera landmarks → the 3D scene coordinates every viewer uses.
+
+        Split out of `_update_mannequins` so the browser viewer sees exactly
+        the same numbers as the desktop window, including the forward push on
+        the wrists. Two viewers deriving scene coordinates separately would
+        drift apart the first time either was touched.
+        """
         scene_joints: dict[str, np.ndarray] = {}
         name_map = {
             "left_shoulder": "l_shoulder", "right_shoulder": "r_shoulder",
@@ -579,6 +596,36 @@ class RecorderEngine:
         if "r_wrist" in scene_joints:
             scene_rhand = hand_to_3d(rh, self.img_w, self.img_h,
                                      scene_joints["r_wrist"])
+        return scene_joints, scene_lhand, scene_rhand
+
+    def publish_landmarks(self, pose: dict, lh: dict, rh: dict) -> None:
+        """Store the current frame's scene coordinates for the browser view.
+
+        Runs every tick regardless of whether the Open3D window exists, so
+        the browser viewer works with the desktop 3D pane switched off — the
+        point of having it at all. Costs a handful of small array conversions.
+        """
+        joints, lhand, rhand = self.scene_from_pose(pose, lh, rh)
+        payload = {
+            "seq": self._landmark_seq + 1,
+            "joints": {k: [round(float(c), 5) for c in v]
+                       for k, v in joints.items()},
+            "lhand": None if lhand is None else
+                     [[round(float(c), 5) for c in p] for p in lhand],
+            "rhand": None if rhand is None else
+                     [[round(float(c), 5) for c in p] for p in rhand],
+        }
+        with self.lock:
+            self._landmark_seq += 1
+            self.latest_landmarks = payload
+
+    def landmark_snapshot(self) -> dict:
+        with self.lock:
+            return self.latest_landmarks
+
+    def _update_mannequins(self, pose: dict, lh: dict, rh: dict) -> None:
+        scene_joints, scene_lhand, scene_rhand = self.scene_from_pose(
+            pose, lh, rh)
         for mq, body in self.synths:
             sj, sl, sr = retarget_scene(
                 scene_joints, scene_lhand, scene_rhand,

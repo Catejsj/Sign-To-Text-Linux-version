@@ -387,6 +387,21 @@
     }
     .skin-hint:empty { display: none; }
     .skin-hint.warn { color: var(--warning); }
+    /* ── browser 3D view ─────────────────────────────────────── */
+    #avatar3d-stage {
+      margin-top: 14px; border-radius: var(--radius-sm); overflow: hidden;
+      background: radial-gradient(ellipse at 50% 30%,
+                  color-mix(in srgb, var(--primary) 9%, transparent), transparent 70%),
+                  var(--bg-inset, rgba(0,0,0,.14));
+      border: 1px solid color-mix(in srgb, var(--primary) 12%, transparent);
+    }
+    #avatar3d-canvas {
+      display: block; width: 100%;
+      /* min-height wins over max-height by spec, so the stage can never
+         collapse even where vh units resolve oddly (embedded webviews). */
+      height: 520px; max-height: 56vh; min-height: 320px;
+    }
+
     .skin-hint code {
       font-family: var(--mono, ui-monospace, monospace); font-size: 11px;
       background: var(--primary-soft); padding: 1px 5px; border-radius: 4px;
@@ -852,6 +867,23 @@
         <button class="btn btn-danger" id="stop-btn">
           <span class="material-symbols-rounded">stop_circle</span> Stop Take
         </button>
+      </div>
+
+      <div class="card" id="avatar3d-card">
+        <div class="labels-header-area" style="align-items:center;">
+          <div style="flex:1;">
+            <div class="card-header" style="margin-bottom:4px;">3D view</div>
+            <div class="skin-hint" id="avatar3d-status" style="margin-top:0;"></div>
+          </div>
+          <div class="labels-actions">
+            <button class="btn btn-secondary" id="avatar3d-toggle">
+              <span class="material-symbols-rounded" style="font-size:18px;">play_arrow</span>
+              <span id="avatar3d-toggle-label">Show avatar</span></button>
+          </div>
+        </div>
+        <div id="avatar3d-stage" hidden>
+          <canvas id="avatar3d-canvas"></canvas>
+        </div>
       </div>
 
       <div class="card">
@@ -1385,6 +1417,107 @@
         mark();
         new MutationObserver(mark).observe(statusLabel,
           { childList: true, characterData: true, subtree: true });
+      }
+    })();
+  </script>
+
+  <!-- The bare specifier `three` is what lets the stock GLTFLoader.js load
+       unmodified. Vendored, because the panel must work with no internet. -->
+  <script type="importmap">
+    { "imports": { "three": "/static/vendor/three/three.module.js" } }
+  </script>
+  <script type="module">
+    /* The browser 3D view. Deliberately self-contained: it owns its own
+       button, its own polling and its own lifetime, and shares nothing with
+       the control-panel script above except the DOM nodes it was given. */
+    import { AvatarView } from '/static/avatar3d.js';
+
+    const $ = (id) => document.getElementById(id);
+    const card = $('avatar3d-card');
+    const stage = $('avatar3d-stage');
+    const status = $('avatar3d-status');
+    const button = $('avatar3d-toggle');
+    const label = $('avatar3d-toggle-label');
+    if (!card) throw new Error('3D view markup missing');
+
+    let view = null, timer = null, active = false;
+
+    const say = (text, warn = false) => {
+      status.textContent = text;
+      status.className = 'skin-hint' + (warn ? ' warn' : '');
+    };
+
+    /* Poll at roughly camera rate. `seq` means a repeated frame costs one
+       small request and no GPU work, so overshooting is cheap and
+       undershooting would drop frames. */
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/landmarks');
+        if (r.ok) view.setLandmarks(await r.json());
+      } catch (_) { /* engine restarting; the next tick retries */ }
+    };
+
+    const startPolling = () => { timer = setInterval(poll, 33); };
+    const stopPolling = () => { if (timer) clearInterval(timer); timer = null; };
+
+    const enable = async () => {
+      stage.hidden = false;
+      button.disabled = true;
+      label.textContent = 'Loading…';
+      say('Loading the model — a large character takes a moment.');
+      try {
+        if (!view) view = new AvatarView($('avatar3d-canvas'));
+        window.__avatar3d = view;   // handle for debugging + tests
+        const info = await view.load('/api/avatar/model', '/api/avatar/rig');
+        view.start();
+        startPolling();
+        active = true;
+        const bits = [`${(info.vertices / 1000).toFixed(0)}k vertices`,
+                      `${info.bones} bones`];
+        if (info.outlines) bits.push(`${info.outlines} outline shells skipped`);
+        if (info.sidecar) bits.push('rig from sidecar');
+        say(bits.join(' · ') + ' — full detail, skinned on the GPU.');
+        label.textContent = 'Hide avatar';
+        button.querySelector('.material-symbols-rounded').textContent = 'stop';
+      } catch (err) {
+        stage.hidden = true;
+        say(String(err && err.message ? err.message : err), true);
+        label.textContent = 'Show avatar';
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    const disable = () => {
+      active = false;
+      stopPolling();
+      if (view) view.stop();
+      stage.hidden = true;
+      label.textContent = 'Show avatar';
+      button.querySelector('.material-symbols-rounded').textContent = 'play_arrow';
+      say('');
+    };
+
+    button.addEventListener('click', () => (active ? disable() : enable()));
+
+    /* A hidden tab still fires setInterval; there is no reason to keep asking
+       the engine for frames nobody is looking at. */
+    document.addEventListener('visibilitychange', () => {
+      if (!active) return;
+      if (document.hidden) { stopPolling(); view.stop(); }
+      else { view.start(); startPolling(); }
+    });
+
+    (async () => {
+      try {
+        const r = await fetch('/api/state');
+        const av = (await r.json()).engine.avatar || {};
+        say(av.available
+          ? `${av.name} ready — renders here in the browser, at full detail.`
+          : 'No avatar loaded — drop a .vrm into assets/avatars/ and reload.');
+        button.disabled = !av.available;
+      } catch (_) {
+        say('Waiting for the engine…');
       }
     })();
   </script>

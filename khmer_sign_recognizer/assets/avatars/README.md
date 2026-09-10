@@ -22,6 +22,17 @@ forbid use in recordings or research output. Using one locally to preview your
 own motion is normally fine; putting rendered frames in a paper may not be.
 That is your call to make, not the code's.
 
+## Two places it can render
+
+**The browser** — `./run_web.sh`, the *3D view* card. GPU skinning, full
+detail, real textures. Use this one.
+
+**The desktop window** — *Configuration → Body → Anime*. CPU skinning, so the
+model is thinned to 40k vertices and its colours baked per vertex. Kept
+because it draws beside the camera feed and needs no WebGL.
+
+Both read this folder and both honour the sidecar below.
+
 ## Check it before wondering why it looks wrong
 
 ```bash
@@ -41,13 +52,22 @@ takes to skin. If it says `UNUSABLE`, the message says what is missing.
 
 ## Two things the loader does to toon models on purpose
 
-**Outline shells are dropped.** Anime models ship a second, slightly inflated
-copy of the body painted near-black, drawn with front faces culled so only its
-inside shows — that dark rim is the cartoon outline. Open3D does not cull that
-way, so left in, the shell renders as an opaque black skin and the character
-vanishes inside it at full detail. Materials named `*_Line` or `*outline*` are
-skipped. On a typical model that is half the vertices, and half the per-frame
-cost, for something that should never have been drawn.
+**Outline shells are dropped, in both viewers.** Anime models ship a second
+copy of the body painted near-black — the cartoon outline, drawn as an
+"inverted hull": inflate it slightly, show only its inside surface, and what
+remains visible is a dark rim around the silhouette. Left in, it renders as an
+opaque black skin and the character disappears inside it. Materials named
+`*_Line` or `*outline*` are skipped; on a typical model that is half the
+vertices and half the per-frame cost.
+
+Drawing them properly was tried in the browser, where back-face-only rendering
+*is* available, and it still failed. Two measurable reasons on this model: the
+hull is inflated by 0.0075 units on a 4.7-unit figure — 0.16%, too little to
+clear the surface reliably — and much of a character like this is thin cloth
+(sleeves, hat brim, cape), an open surface with no inside for a hull to hide
+in, so its back faces land in front of the body. A real toon outline needs the
+vertex shader to widen the hull along the normal, which is what MToon does and
+what this export dropped.
 
 **Colour is read from the emissive channel when base colour is black.** Toon
 and unlit materials set base colour to pure black and put the artwork in

@@ -14,13 +14,33 @@ main thread.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Lock
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from webapp import library
 from webapp.engine import RecorderEngine, HAS_OPEN3D, list_models
+
+try:
+    from scripts.mannequin_skins import find_avatar as avatar_file
+except ImportError:                       # no Open3D installed
+    def avatar_file(explicit=None):
+        """Locate an avatar without importing the Open3D-backed skins module.
+
+        The browser viewer does not need Open3D at all, so a machine with no
+        Open3D should still be able to serve a model to the page.
+        """
+        folder = Path(__file__).resolve().parents[1] / "assets" / "avatars"
+        if not folder.is_dir():
+            return None
+        found = [p for p in folder.iterdir()
+                 if p.suffix.lower() in (".vrm", ".glb", ".gltf") and p.is_file()]
+        if not found:
+            return None
+        found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return found[0]
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -155,6 +175,45 @@ def create_app(state: AppState) -> Flask:
         if data.get("signer"):
             engine.set_signer(data["signer"])
         return jsonify(ok=True, config=engine.snapshot()["config"])
+
+    # ── browser 3D view ──
+    @app.get("/api/landmarks")
+    def api_landmarks():
+        """The current frame's scene coordinates.
+
+        Polled rather than streamed: the page asks about as often as the
+        camera produces frames, and `seq` tells it when nothing is new. A
+        Server-Sent Events stream would shave a few milliseconds and add a
+        connection lifecycle to get wrong on a dev server.
+        """
+        return jsonify(engine.landmark_snapshot())
+
+    @app.get("/api/avatar/model")
+    def api_avatar_model():
+        """The avatar file itself, for three.js to load in the browser."""
+        path = avatar_file()
+        if path is None:
+            return jsonify(error="no avatar file"), 404
+        return send_file(path, mimetype="model/gltf-binary",
+                         conditional=True)
+
+    @app.get("/api/avatar/rig")
+    def api_avatar_rig():
+        """The `<model>.rig.json` sidecar, or `{}` when there is not one.
+
+        The browser viewer applies the same bone map and chain re-parenting
+        as the desktop one, so a rig described once works in both.
+        """
+        path = avatar_file()
+        if path is None:
+            return jsonify({})
+        sidecar = Path(str(path) + ".rig.json")
+        if not sidecar.exists():
+            return jsonify({})
+        try:
+            return jsonify(json.loads(sidecar.read_text(encoding="utf-8")))
+        except json.JSONDecodeError as exc:
+            return jsonify(error=f"{sidecar.name} is not valid JSON: {exc}"), 400
 
     # ── deletion (record mode only) ──
     @app.delete("/api/takes")

@@ -47,7 +47,7 @@ from webapp import library                                             # noqa: E
 try:
     import open3d as o3d                                               # noqa: E402
     from scripts.mannequin_local import (                              # noqa: E402
-        Mannequin, retarget_scene, body_to_3d, hand_to_3d,
+        LINE_WIDTH, Mannequin, retarget_scene, body_to_3d, hand_to_3d,
     )
     from scripts.mannequin_skins import (                              # noqa: E402
         SKINS, DEFAULT_SKIN, AvatarUnavailable, avatar_status, make_mannequin,
@@ -231,6 +231,10 @@ class RecorderEngine:
         opt = self.vis.get_render_option()
         opt.background_color = np.array([0.05, 0.06, 0.09])
         opt.light_on = True
+        # The hands are LineSets, and Open3D draws lines 1px wide by default.
+        # Against a character they are effectively invisible — this is why the
+        # anime skin looked like it had no hands at all.
+        opt.line_width = LINE_WIDTH
         vc = self.vis.get_view_control()
         vc.set_front([0.0, 0.0, 1.0]); vc.set_up([0.0, 1.0, 0.0])
         vc.set_lookat([0.0, 0.0, 0.0]); vc.set_zoom(0.75 + 0.14 * n)

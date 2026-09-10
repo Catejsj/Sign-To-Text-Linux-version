@@ -302,6 +302,38 @@ def selftest() -> int:
         check("mirror=False is what turned it around", back[2] < -0.9,
               f"z={back[2]:+.2f} — this was the bug")
 
+        # 4c. Stability. A mis-detected nose used to swing the whole-body
+        #     basis, and a nose below the shoulders flipped the avatar upside
+        #     down. Up is now the world axis, so no facial landmark can roll
+        #     the body at all. Sweep the nose everywhere, including below the
+        #     shoulders, and the up axis must not budge.
+        # Compare the axis directly rather than via an angle: arccos near 1
+        # loses half its precision to a square root and cannot resolve a
+        # genuinely-zero tilt.
+        worst = 0.0
+        for nose in ([0.0, 1.20, 0.05], [0.5, 1.20, 0.05], [0.0, 0.80, 0.05],
+                     [0.0, 0.95, -0.4], [-0.6, 1.6, 0.3]):
+            frame = rig_mirror.scene_transform({**capture,
+                                                "nose": np.array(nose)})
+            world_up = frame[0] @ np.array([0.0, 1.0, 0.0])
+            worst = max(worst, float(np.linalg.norm(
+                world_up - np.array([0.0, 1.0, 0.0]))))
+        check("a bad nose cannot roll the body", worst < 1e-9,
+              f"up axis moved {worst:.2e} over 5 nose positions, "
+              f"including one below the shoulders")
+
+        # 4d. Smoothing must not change where a held pose settles, only how
+        #     fast it gets there — otherwise it would bias every pose.
+        damped = AvatarRig(mesh, bones, hand_scale=1.0, smoothing=0.4)
+        for _ in range(60):
+            damped.pose(bent)
+        settled = damped.pose(bent)[0]
+        exact = AvatarRig(mesh, bones, hand_scale=1.0,
+                          smoothing=1.0).pose(bent)[0]
+        drift = float(np.abs(settled - exact).max())
+        check("smoothing converges on the exact pose", drift < 1e-6,
+              f"drift {drift:.2e}")
+
         rig_nohands = AvatarRig(mesh, bones, hand_scale=0.0, mirror=False)
         posed_nh, _ = rig_nohands.pose(scene_rest)
         moved = float(np.linalg.norm(

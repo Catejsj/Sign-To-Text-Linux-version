@@ -105,11 +105,16 @@ class AvatarRig:
     def __init__(self, mesh: SkinnedMesh, bones: dict[str, int],
                  hand_scale: float = 0.0,
                  chain_parents: Optional[dict[int, int]] = None,
-                 mirror: bool = True):
+                 mirror: bool = True, smoothing: float = 1.0):
         self.mesh = mesh
         self.bones = bones
         self.hand_scale = float(hand_scale)
         self.mirror = bool(mirror)
+        # 1.0 = off, which keeps pose() a pure function of its input. The live
+        # path lowers it; see `_smooth`.
+        self.smoothing = float(np.clip(smoothing, 0.05, 1.0))
+        self._ema: dict[int, np.ndarray] = {}
+        self._ema_scale: Optional[float] = None
 
         missing = [b for b in ("leftupperarm", "rightupperarm",
                                "leftlowerarm", "rightlowerarm",
@@ -249,9 +254,22 @@ class AvatarRig:
         if width < 1e-9:
             return None
 
-        up = joints["nose"] - neck        # the nose sits above the shoulders
-        if np.linalg.norm(up) < 1e-9:
-            up = np.array([0.0, 1.0, 0.0])
+        # Up is the WORLD up, not the neck→nose direction.
+        #
+        # Deriving up from the nose looked more faithful and was the cause of
+        # the avatar flipping upside down. The nose is one noisy landmark
+        # roughly a head above the shoulders, so any frame where it is
+        # mis-detected — or simply where the signer tilts far enough — swings
+        # the whole-body basis, and a nose that lands below the shoulder line
+        # inverts it outright. One bad frame, and the entire character is
+        # upside down.
+        #
+        # Scene y is up by construction (body_to_3d negates image y), and the
+        # camera does not roll, so a constant is both stabler and more
+        # correct. Shoulder tilt still rolls the avatar, because that comes
+        # from the side axis, which is measured from two well-tracked joints
+        # rather than one unreliable one.
+        up = np.array([0.0, 1.0, 0.0])
 
         # `cross(toward-the-left, up)` is the forward direction in any
         # RIGHT-handed frame — which is how `_basis` derives the avatar's
@@ -273,7 +291,17 @@ class AvatarRig:
         scene_basis = _basis(side, up)
 
         rotation = scene_basis @ self._avatar_basis.T
+
+        # Shoulder width sets the avatar's size, so jitter in either shoulder
+        # makes the whole character pulse. Smooth it on the same average as
+        # the aim directions.
         scale = width / self.rest_shoulder_width
+        if self.smoothing < 1.0:
+            if self._ema_scale is not None:
+                scale = (self.smoothing * scale
+                         + (1.0 - self.smoothing) * self._ema_scale)
+            self._ema_scale = scale
+
         return rotation, scale, self.rest_neck, neck
 
     def pose(self, joints: dict[str, np.ndarray],
@@ -371,17 +399,49 @@ class AvatarRig:
             if n > 1e-9:
                 out[node] = (child, d / n)
 
-        # Head: aim neck→head at the nose, which is the only facial point we
-        # track. It is a small effect but it stops the head looking pasted on.
+        # Head: aim neck→head at the nose, the only facial point we track.
+        # Bounded, because one noisy landmark should not be able to throw the
+        # head anywhere: a nose detected below the shoulder line would
+        # otherwise put the head on upside down. Refuse anything past 60° from
+        # straight up, and let the neck hold its rest pose instead.
         neck, head = self._bone("neck"), self._bone("head")
-        if neck is not None and head is not None and "nose" in targets:
-            if "l_shoulder" in targets and "r_shoulder" in targets:
-                mid = (targets["l_shoulder"] + targets["r_shoulder"]) / 2.0
-                d = targets["nose"] - mid
-                n = float(np.linalg.norm(d))
-                if n > 1e-9:
-                    out[neck] = (head, d / n)
-        return out
+        if (neck is not None and head is not None and "nose" in targets
+                and "l_shoulder" in targets and "r_shoulder" in targets):
+            rest_dir = self._rest_pos[head] - self._rest_pos[neck]
+            rest_n = float(np.linalg.norm(rest_dir))
+            mid = (targets["l_shoulder"] + targets["r_shoulder"]) / 2.0
+            d = targets["nose"] - mid
+            n = float(np.linalg.norm(d))
+            if n > 1e-9 and rest_n > 1e-9:
+                d = d / n
+                if float(np.dot(d, rest_dir / rest_n)) > 0.5:      # within 60°
+                    out[neck] = (head, d)
+
+        return {node: (child, self._smooth(node, direction))
+                for node, (child, direction) in out.items()}
+
+    def _smooth(self, key: int, direction: np.ndarray) -> np.ndarray:
+        """Blend a target direction toward the previous frame's.
+
+        Landmark jitter reaches the avatar amplified: a wobble of a few pixels
+        at the wrist swings a whole forearm, and the eye reads that as the
+        model glitching. An exponential average costs one frame of latency and
+        removes most of it. `smoothing=1.0` disables this and makes `pose()` a
+        pure function of its input, which is what the tests want.
+        """
+        if self.smoothing >= 1.0:
+            return direction
+        previous = self._ema.get(key)
+        self._ema[key] = direction
+        if previous is None:
+            return direction
+        blended = self.smoothing * direction + (1.0 - self.smoothing) * previous
+        norm = float(np.linalg.norm(blended))
+        if norm < 1e-9:
+            return direction
+        blended = blended / norm
+        self._ema[key] = blended
+        return blended
 
     def _skin_matrices(self, accum: np.ndarray,
                        new_pos: np.ndarray) -> np.ndarray:
@@ -432,7 +492,8 @@ def load_rig_spec(path) -> dict:
 
 
 def load_rig(path, max_vertices: int = 40000,
-             hand_scale: float = 0.0) -> AvatarRig:
+             hand_scale: float = 0.0,
+             smoothing: float = 0.45) -> AvatarRig:
     """Load a `.vrm` / `.glb` / `.gltf` and prepare it for posing.
 
     Bone identification tries three sources, most trustworthy first: a
@@ -471,4 +532,5 @@ def load_rig(path, max_vertices: int = 40000,
 
     return AvatarRig(mesh, bones, hand_scale=hand_scale,
                      chain_parents=chain_parents,
-                     mirror=bool(spec.get("mirror", True)))
+                     mirror=bool(spec.get("mirror", True)),
+                     smoothing=float(spec.get("smoothing", smoothing)))

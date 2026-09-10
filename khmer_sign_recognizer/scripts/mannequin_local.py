@@ -80,6 +80,11 @@ SCALE = 2.4
 # short enough that a genuinely-gone hand doesn't linger as a ghost.
 HAND_HIDE_AGE = 10
 
+# Open3D draws LineSets 1 pixel wide by default, which against a textured
+# character is invisible — the anime skin looked like it had no hands at all.
+# Every window that shows a figure sets this.
+LINE_WIDTH = 4.0
+
 
 # ─────────────────────────────────────────────────────────────────────
 #  Geometry helpers
@@ -490,6 +495,7 @@ def run_playback(folder: Path, count: int, fps: float = 12.0,
     opt = vis.get_render_option()
     opt.background_color = np.array([0.05, 0.06, 0.09])
     opt.light_on = True
+    opt.line_width = LINE_WIDTH
 
     vc = vis.get_view_control()
     vc.set_front([0.0, 0.0, 1.0])
@@ -640,6 +646,7 @@ def main() -> None:
     opt = vis.get_render_option()
     opt.background_color = np.array([0.05, 0.06, 0.09])
     opt.light_on = True
+    opt.line_width = LINE_WIDTH
 
     vc = vis.get_view_control()
     vc.set_front([0.0, 0.0, 1.0])

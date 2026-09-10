@@ -20,6 +20,9 @@ live camera and 3D mannequin in their own desktop window. It has two modes:
   delete them, generate synthetic variants.
 - **Recognize** — load a saved model and get live predictions with confidence.
 
+**Picking the work back up?** → [`docs/project/STATE.md`](docs/project/STATE.md)
+— one page: current numbers, what moved them, what is ruled out, what is open.
+
 No setup yet? → [`docs/setup/`](docs/setup/). Every command the project
 uses → [`docs/guides/COMMANDS.md`](docs/guides/COMMANDS.md).
 

@@ -1,10 +1,11 @@
 # Documentation index
 
-Twenty-two documents, in five folders. Find your row in the first table and go
+Twenty-three documents, in five folders. Find your row in the first table and go
 there directly.
 
 | I want to… | Read |
 |---|---|
+| **pick the work back up** | **[project/STATE.md](project/STATE.md)** — one page, where everything stands |
 | install this on my machine | [setup/](#setup) for your OS |
 | record my takes for the team | [guides/TEAM_DATA_COLLECTION_PLAN.md](guides/TEAM_DATA_COLLECTION_PLAN.md) |
 | look up a command | [guides/COMMANDS.md](guides/COMMANDS.md) |
@@ -13,7 +14,7 @@ there directly.
 | know what synthetic data actually does | [reference/SYNTHETIC_RETARGETING.md](reference/SYNTHETIC_RETARGETING.md) |
 | find out why something is built the way it is | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) |
 | **write the paper** | [project/PAPER_DRAFT.md](project/PAPER_DRAFT.md) |
-| **know the latest measured results** | [project/PROBLEM_LOG.md](project/PROBLEM_LOG.md) §J–N, and `Task_A_Report.docx` |
+| **know the latest measured results** | [project/STATE.md](project/STATE.md), then PROBLEM_LOG §J–S |
 
 ---
 
@@ -57,7 +58,8 @@ What we measured.
 
 | | |
 |---|---|
-| **Task_A_Report.docx** | `algo_comparison/results_khmer_var_taskA/` — the current report: all five questions, 15 models, the audit. Regenerate with `run_task_a.py` then `make_task_a_report.py`. |
+| **Task_A_Report.docx** — Task A | `algo_comparison/results_khmer_var_taskA/` — 4 signers, the 12-cell grid. |
+| **Task_A_Report.docx** — Task B | `algo_comparison/results_khmer_taskA_cap30/` — **the one to hand in**: 7 signers, capped at 30/sign, 15 models, the audit. |
 | [TASK_A_FOR_TEACHER.md](results/TASK_A_FOR_TEACHER.md) | The variation experiment in the order you would say it out loud. Start here. |
 | [TASK_A_EXPLAINED.md](results/TASK_A_EXPLAINED.md) | `Task_A_Report.docx` walked through section by section. |
 | [SYNTHETIC_EXPLAINED.md](results/SYNTHETIC_EXPLAINED.md) | The real vs real+synthetic comparison, and why the gain is only about 2 points. |
@@ -71,9 +73,10 @@ Planning and history.
 
 | | |
 |---|---|
+| **[STATE.md](project/STATE.md)** | **Start here.** Current numbers, what moved them, what is ruled out, the three open threads, and the traps. |
 | [PAPER_DRAFT.md](project/PAPER_DRAFT.md) | Research-paper content draft — the argument, every table with the file it came from, and the gaps that still block writing. |
 | [TIMELINE.md](project/TIMELINE.md) | The two-year plan; every milestone has a hard deliverable. |
-| [PROBLEM_LOG.md](project/PROBLEM_LOG.md) | Every problem hit and every change made, with cause, fix and evidence. The most useful file when picking work back up. **§J–N are the current results.** |
+| [PROBLEM_LOG.md](project/PROBLEM_LOG.md) | Every problem hit and every change made, with cause, fix and evidence. The most useful file when picking work back up. **§J–S are the current results.** |
 | [PROJECT_BRIEF_FOR_AI.md](project/PROJECT_BRIEF_FOR_AI.md) | Self-contained project description to paste into an AI assistant for literature work. |
 | [PRESENTATION_TERM1.md](project/PRESENTATION_TERM1.md) | Slide content for the term-1 review. ⚠️ Historical — the status claims are from before the web app and the experiments landed. |
 

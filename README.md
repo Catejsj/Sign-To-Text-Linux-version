@@ -114,6 +114,9 @@ Once installed, one command gets you recording:
 ./run_web.sh
 ```
 
+Continuing the work? [`docs/project/STATE.md`](khmer_sign_recognizer/docs/project/STATE.md)
+is one page covering where everything stands.
+
 Joining the team? Start at
 [`docs/guides/TEAM_ONBOARDING.md`](khmer_sign_recognizer/docs/guides/TEAM_ONBOARDING.md).
 Every other document is indexed in

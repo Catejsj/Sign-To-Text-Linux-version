@@ -232,9 +232,17 @@ python scripts/check_avatar.py assets/avatars/your_model.vrm
 ```
 
 It prints the bone map, the vertex count and the per-frame skinning cost, and
-names what is missing if the model cannot be driven. `--selftest` instead
-verifies the retargeting math against a synthetic rig — run that after
-touching `src/gltf_min.py` or `src/avatar_pose.py`.
+names what is missing if the model cannot be driven. Crucially it also **poses
+the rig and measures whether the arms follow** — a flattened export poses
+without error and only looks wrong once it moves, so `0.00° error` on all four
+arm segments is the check that matters.
+
+If the automatic bone matching fails, describe the rig in a
+`<model>.rig.json` sidecar (`--write-rig-template` starts one); see
+[`assets/avatars/README.md`](../../assets/avatars/README.md).
+
+`--selftest` instead verifies the retargeting math against a synthetic rig —
+run that after touching `src/gltf_min.py` or `src/avatar_pose.py`.
 
 **The arms and head follow you; the torso and fingers do not.** The capture
 gives six body joints and a nose, so the arms are aimed directly and the head

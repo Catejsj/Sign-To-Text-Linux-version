@@ -31,6 +31,8 @@ rest this collapses to the identity, which `test_avatar_pose.py` asserts.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -101,7 +103,8 @@ class AvatarRig:
     """
 
     def __init__(self, mesh: SkinnedMesh, bones: dict[str, int],
-                 hand_scale: float = 0.0):
+                 hand_scale: float = 0.0,
+                 chain_parents: Optional[dict[int, int]] = None):
         self.mesh = mesh
         self.bones = bones
         self.hand_scale = float(hand_scale)
@@ -119,6 +122,7 @@ class AvatarRig:
                            for j, n in enumerate(mesh.joint_nodes)}
         self.node_to_joint = {int(n): j
                               for j, n in enumerate(mesh.joint_nodes)}
+        self._parents = self._effective_parents(chain_parents or {})
         self._order = self._topological_order()
         self._rest_pos = mesh.node_rest[:, :3, 3].copy()
         self._collapse = self._hand_descendants() if self.hand_scale < 1.0 \
@@ -140,9 +144,47 @@ class AvatarRig:
         self._avatar_basis = _basis(l_sh - r_sh, up)
 
     # ── setup helpers ────────────────────────────────────────────────
+    def _effective_parents(self, overrides: dict[int, int]) -> np.ndarray:
+        """The file's node hierarchy with re-parenting applied.
+
+        Some exporters flatten the deforming skeleton. Auto-Rig Pro rigs
+        pushed through Sketchfab are the common case: the bones that carry
+        skin weight all hang off one trajectory node, and the anatomical
+        chain only exists as Blender constraints, which do not survive
+        export. Rotating the upper arm then leaves the forearm behind.
+
+        Re-parenting restores the chain. It changes nothing about the rest
+        pose — a node's rest transform is read from `node_rest`, which is
+        already world-space — so this only affects what *inherits* motion.
+
+        Cycles are rejected rather than hung on: a bad hand-written override
+        would otherwise spin forever in the walk below.
+        """
+        par = self.mesh.node_parents.copy()
+        for child, parent in overrides.items():
+            child, parent = int(child), int(parent)
+            if not (0 <= child < len(par) and 0 <= parent < len(par)):
+                raise ValueError(
+                    f"chain_parents refers to node {child} -> {parent}, "
+                    f"but the file has {len(par)} nodes"
+                )
+            par[child] = parent
+
+        for start in range(len(par)):
+            seen, j = set(), start
+            while j != -1:
+                if j in seen:
+                    raise ValueError(
+                        f"chain_parents creates a cycle through node {j} "
+                        f"— a bone cannot be its own ancestor"
+                    )
+                seen.add(j)
+                j = int(par[j])
+        return par
+
     def _topological_order(self) -> list[int]:
         """Node indices with every parent before its children."""
-        par = self.mesh.node_parents
+        par = self._parents
         depth = np.zeros(len(par), dtype=np.int64)
         for i in range(len(par)):
             d, j, guard = 0, int(par[i]), 0
@@ -166,7 +208,7 @@ class AvatarRig:
         if not roots:
             return set()
         children: dict[int, list[int]] = {}
-        for i, p in enumerate(self.mesh.node_parents):
+        for i, p in enumerate(self._parents):
             children.setdefault(int(p), []).append(i)
         out: set[int] = set()
         stack = list(roots)
@@ -223,6 +265,26 @@ class AvatarRig:
         `None` means the frame did not carry enough of the upper body to place
         the avatar; the caller should hold the previous pose.
         """
+        solved = self._solve(joints)
+        if solved is None:
+            return None
+        accum, new_pos, frame = solved
+        rotation, scale, avatar_origin, scene_origin = frame
+
+        skin_mats = self._skin_matrices(accum, new_pos)
+        verts, normals = self.mesh.skin(skin_mats, with_normals=with_normals)
+
+        verts = (verts - avatar_origin) * scale @ rotation.T + scene_origin
+        if with_normals:
+            normals = normals @ rotation.T
+        return verts, normals
+
+    def _solve(self, joints: dict[str, np.ndarray]):
+        """Walk the hierarchy once, accumulating rotation and position.
+
+        Returns `(accum, new_pos, frame)` in avatar space, or None when the
+        frame is too incomplete to place the avatar at all.
+        """
         frame = self.scene_transform(joints)
         if frame is None:
             return None
@@ -231,16 +293,14 @@ class AvatarRig:
         # Bring the scene targets into avatar space — the rig's own units —
         # so the aiming math never mixes coordinate systems.
         inv_rot = rotation.T
-        def to_avatar(p: np.ndarray) -> np.ndarray:
-            return inv_rot @ (p - scene_origin) / scale + avatar_origin
-
-        targets = {k: to_avatar(v) for k, v in joints.items()}
+        targets = {k: inv_rot @ (v - scene_origin) / scale + avatar_origin
+                   for k, v in joints.items()}
 
         accum = np.tile(np.eye(3), (len(self._rest_pos), 1, 1))
         new_pos = self._rest_pos.copy()
         aims = self._aim_directions(targets)
 
-        par = self.mesh.node_parents
+        par = self._parents
         for node in self._order:
             p = int(par[node])
             if p != -1:
@@ -257,13 +317,25 @@ class AvatarRig:
             if node in self._collapse:
                 accum[node] = accum[node] * self.hand_scale
 
-        skin_mats = self._skin_matrices(accum, new_pos)
-        verts, normals = self.mesh.skin(skin_mats, with_normals=with_normals)
+        return accum, new_pos, frame
 
-        verts = (verts - avatar_origin) * scale @ rotation.T + scene_origin
-        if with_normals:
-            normals = normals @ rotation.T
-        return verts, normals
+    def posed_bone_positions(self, joints: dict[str, np.ndarray]
+                             ) -> Optional[dict[str, np.ndarray]]:
+        """Where each humanoid bone ends up, in scene space.
+
+        Not used for rendering — this is how `check_avatar.py` verifies that
+        a rig actually reaches the joints it was aimed at, which is the one
+        thing that silently fails when a hierarchy is wrong.
+        """
+        solved = self._solve(joints)
+        if solved is None:
+            return None
+        _, new_pos, (rotation, scale, avatar_origin, scene_origin) = solved
+        return {
+            bone: (new_pos[node] - avatar_origin) * scale @ rotation.T
+                  + scene_origin
+            for bone, node in self.bones.items()
+        }
 
     def _aim_directions(self, targets: dict[str, np.ndarray]
                         ) -> dict[int, tuple[int, np.ndarray]]:
@@ -306,16 +378,77 @@ class AvatarRig:
         return m @ self.mesh.node_rest[nodes] @ self.mesh.inverse_bind
 
 
+def rig_sidecar_path(path) -> Path:
+    """Where the hand-written rig description for `path` would live."""
+    p = Path(path)
+    return p.with_suffix(p.suffix + ".rig.json")
+
+
+def load_rig_spec(path) -> dict:
+    """Read `<model>.rig.json` if it exists, else `{}`.
+
+    The sidecar exists because bone naming is not standardised outside VRM.
+    Rather than growing an ever-longer table of guesses for every exporter,
+    a rig that the automatic matcher cannot read can simply be described:
+
+        {
+          "bones":         {"leftupperarm": "arm.l_0106", ...},
+          "chain_parents": {"hand.l_0328":  "forearm_stretch.l_0339", ...}
+        }
+
+    Both maps use node *names* from the file, which is what you see in
+    `check_avatar.py` output and in Blender. `--write-rig-template` emits a
+    starting point with the automatic guesses already filled in.
+    """
+    p = rig_sidecar_path(path)
+    if not p.exists():
+        return {}
+    try:
+        spec = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{p.name} is not valid JSON: {exc}") from exc
+    if not isinstance(spec, dict):
+        raise ValueError(f"{p.name} must contain a JSON object")
+    return spec
+
+
 def load_rig(path, max_vertices: int = 24000,
              hand_scale: float = 0.0) -> AvatarRig:
     """Load a `.vrm` / `.glb` / `.gltf` and prepare it for posing.
 
-    Falls back to name-matching when the file carries no VRM humanoid table,
-    which is what lets a plain Mixamo or Blender export work too.
+    Bone identification tries three sources, most trustworthy first: a
+    `<model>.rig.json` sidecar, the VRM humanoid table, then matching node
+    names. The sidecar wins because it was written by a person looking at
+    this particular file.
     """
     from src.gltf_min import Gltf
 
     gltf = Gltf.load(path)
-    bones = gltf.humanoid_bones() or gltf.guess_humanoid_bones()
     mesh = gltf.skinned_mesh(max_vertices=max_vertices)
-    return AvatarRig(mesh, bones, hand_scale=hand_scale)
+    spec = load_rig_spec(path)
+
+    bones = gltf.humanoid_bones() or gltf.guess_humanoid_bones()
+    by_name = {n.get("name", ""): i
+               for i, n in enumerate(gltf.doc.get("nodes", []))}
+
+    def resolve(label: str, value) -> int:
+        if isinstance(value, int):
+            return value
+        if value not in by_name:
+            raise ValueError(
+                f"{rig_sidecar_path(path).name}: {label} names "
+                f"'{value}', which is not a node in the file"
+            )
+        return by_name[value]
+
+    for bone, value in (spec.get("bones") or {}).items():
+        bones[bone.lower()] = resolve(f"bones.{bone}", value)
+
+    chain_parents = {
+        resolve(f"chain_parents key '{c}'", c): resolve(
+            f"chain_parents['{c}']", p)
+        for c, p in (spec.get("chain_parents") or {}).items()
+    }
+
+    return AvatarRig(mesh, bones, hand_scale=hand_scale,
+                     chain_parents=chain_parents)

@@ -33,7 +33,9 @@ sys.path.insert(0, str(ROOT))
 
 try:
     from src.gltf_min import Gltf, GltfError, HUMANOID_BONES
-    from src.avatar_pose import AvatarRig, load_rig
+    from src.avatar_pose import (
+        AvatarRig, load_rig, load_rig_spec, rig_sidecar_path,
+    )
 except ImportError as exc:                                   # pragma: no cover
     print(f"cannot import the avatar modules: {exc}")
     print("Run this with the project's interpreter:  ./venv/bin/python "
@@ -315,6 +317,17 @@ def inspect(path: Path, max_vertices: int) -> int:
     else:
         bones = gltf.guess_humanoid_bones()
         source = "guessed from node names (no VRM extension present)"
+
+    spec = load_rig_spec(path)
+    by_name = {n.get("name", ""): i
+               for i, n in enumerate(gltf.doc.get("nodes", []))}
+    overridden: set[str] = set()
+    if spec:
+        for bone, value in (spec.get("bones") or {}).items():
+            if value in by_name:
+                bones[bone.lower()] = by_name[value]
+                overridden.add(bone.lower())
+        source = f"{rig_sidecar_path(path).name} over {source}"
     print(f"  bone map      {len(bones)} bones, {source}")
 
     required = ("leftupperarm", "leftlowerarm", "lefthand",
@@ -323,14 +336,25 @@ def inspect(path: Path, max_vertices: int) -> int:
     for b in HUMANOID_BONES:
         if b in bones:
             name = gltf.doc["nodes"][bones[b]].get("name", "?")
-            print(f"      {b:<16} node {bones[b]:<4} {name}")
+            mark = " (sidecar)" if b in overridden else ""
+            print(f"      {b:<16} node {bones[b]:<4} {name}{mark}")
 
     if missing:
         print(f"\n  UNUSABLE — missing arm bones: {', '.join(missing)}")
         print("  The arms are the whole point; without them there is nothing")
-        print("  to drive. Re-export with a standard humanoid rig, or use a")
-        print("  VRM from VRoid Studio which always has one.")
+        print("  to drive.")
+        print(f"\n  If the bones exist under names the matcher did not")
+        print(f"  recognise, describe them yourself:")
+        print(f"      python scripts/check_avatar.py {path} --write-rig-template")
+        print("  then fill in the names and re-run this check. Otherwise")
+        print("  re-export with a standard humanoid rig, or use a VRM from")
+        print("  VRoid Studio, which always has one.")
         return 1
+
+    n_chain = len(spec.get("chain_parents") or {})
+    if n_chain:
+        print(f"  re-parented   {n_chain} bones, to restore a chain the "
+              f"export flattened")
 
     try:
         mesh = gltf.skinned_mesh(max_vertices=max_vertices)
@@ -345,10 +369,14 @@ def inspect(path: Path, max_vertices: int) -> int:
     flat = mesh.colors.std(axis=0).mean()
     print(f"  colours       {'baked from textures' if flat > 0.01 else 'flat / untextured'}")
 
-    rig = AvatarRig(mesh, bones, hand_scale=0.0)
+    try:
+        rig = load_rig(path, max_vertices=max_vertices, hand_scale=0.0)
+    except ValueError as exc:
+        print(f"\n  Cannot build the rig: {exc}")
+        return 1
     print(f"  shoulder span {rig.rest_shoulder_width:.3f} model units")
 
-    # Time a pose so the user knows whether it will keep up with the camera.
+    # A signing-ish pose: both arms bent forward and up in front of the chest.
     scene = {
         "l_shoulder": np.array([0.2, 1.0, 0.0]),
         "r_shoulder": np.array([-0.2, 1.0, 0.0]),
@@ -358,6 +386,38 @@ def inspect(path: Path, max_vertices: int) -> int:
         "r_wrist": np.array([-0.3, 0.5, 0.3]),
         "nose": np.array([0.0, 1.25, 0.05]),
     }
+
+    # Does the rig actually REACH? A flattened hierarchy — bones parented to
+    # a common root rather than to each other — poses without error and
+    # leaves the forearm behind, which is invisible until you watch it move.
+    # Compare the angle the posed arm makes against the angle it was aimed at.
+    print()
+    placed = rig.posed_bone_positions(scene)
+    worst = 0.0
+    for side, sh, el, wr in (("left", "l_shoulder", "l_elbow", "l_wrist"),
+                             ("right", "r_shoulder", "r_elbow", "r_wrist")):
+        for seg, a, b in (("upper arm", sh, el), ("forearm", el, wr)):
+            bone_a = f"{side}{'upperarm' if seg == 'upper arm' else 'lowerarm'}"
+            bone_b = f"{side}{'lowerarm' if seg == 'upper arm' else 'hand'}"
+            got = placed[bone_b] - placed[bone_a]
+            want = scene[b] - scene[a]
+            gn, wn = np.linalg.norm(got), np.linalg.norm(want)
+            if gn < 1e-9 or wn < 1e-9:
+                continue
+            deg = float(np.degrees(np.arccos(
+                np.clip(np.dot(got / gn, want / wn), -1.0, 1.0))))
+            worst = max(worst, deg)
+            flag = "ok" if deg < 1.0 else "OFF"
+            print(f"  reach         {side:<5} {seg:<9} {deg:6.2f}° error  {flag}")
+
+    if worst >= 1.0:
+        print(f"\n  BROKEN — the arms do not follow. The bones were found but")
+        print("  they are not connected to each other, so rotating one does")
+        print("  not carry the next. Add a `chain_parents` map to")
+        print(f"  {rig_sidecar_path(path).name} joining upper arm → forearm →")
+        print("  hand. Run with --write-rig-template for a starting point.")
+        return 1
+
     rig.pose(scene)                       # warm up
     t0 = time.perf_counter()
     for _ in range(20):
@@ -373,6 +433,51 @@ def inspect(path: Path, max_vertices: int) -> int:
     return 0
 
 
+def write_template(path: Path) -> int:
+    """Emit a starter `<model>.rig.json` with the automatic guesses filled in.
+
+    Refuses to clobber an existing sidecar — that file is hand-written and
+    losing it means working the bone names out a second time.
+    """
+    out = rig_sidecar_path(path)
+    if out.exists():
+        print(f"\n  {out.name} already exists — not overwriting it.")
+        print("  Edit it directly, or move it aside and re-run.")
+        return 1
+
+    gltf = Gltf.load(path)
+    bones = gltf.humanoid_bones() or gltf.guess_humanoid_bones()
+    nodes = gltf.doc.get("nodes", [])
+
+    required = ("leftshoulder", "leftupperarm", "leftlowerarm", "lefthand",
+                "rightshoulder", "rightupperarm", "rightlowerarm",
+                "righthand", "neck", "head", "hips", "spine", "chest")
+    filled = {b: nodes[bones[b]].get("name", "") if b in bones
+              else "FIXME — node name from the listing above"
+              for b in required}
+
+    spec = {
+        "_comment": [
+            "Bone names for this model. Values are node names exactly as",
+            "check_avatar.py prints them. Replace every FIXME.",
+            "",
+            "chain_parents is only needed when the export flattened the",
+            "skeleton — if check_avatar.py reports the arms do not reach,",
+            "join upper arm -> forearm -> hand here.",
+        ],
+        "bones": filled,
+        "chain_parents": {},
+    }
+    out.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
+    print(f"\n  Wrote {out.name}")
+    missing = [b for b in required if b not in bones]
+    if missing:
+        print(f"  {len(missing)} bone(s) need filling in: "
+              f"{', '.join(missing)}")
+    print(f"  Then re-run:  python scripts/check_avatar.py {path}")
+    return 0
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -381,6 +486,9 @@ def main() -> None:
     ap.add_argument("--selftest", action="store_true",
                     help="verify the retargeting math on a synthetic rig")
     ap.add_argument("--max-vertices", type=int, default=24000)
+    ap.add_argument("--write-rig-template", action="store_true",
+                    help="emit a starter <model>.rig.json to describe bones "
+                         "the automatic matcher could not identify")
     args = ap.parse_args()
 
     if args.selftest:
@@ -390,6 +498,8 @@ def main() -> None:
     if not args.avatar.exists():
         print(f"no such file: {args.avatar}")
         sys.exit(2)
+    if args.write_rig_template:
+        sys.exit(write_template(args.avatar))
     sys.exit(inspect(args.avatar, args.max_vertices))
 
 

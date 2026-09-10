@@ -499,31 +499,50 @@ class Gltf:
                 col = col / 255.0
             return np.clip(col[:, :3], 0.0, 1.0)
 
-        factor = np.array([0.8, 0.8, 0.8], dtype=np.float64)
-        image_index: Optional[int] = None
-        if "material" in prim:
-            mat = self.doc.get("materials", [])[prim["material"]]
-            pbr = mat.get("pbrMetallicRoughness", {}) or {}
-            if "baseColorFactor" in pbr:
-                factor = np.array(pbr["baseColorFactor"][:3], dtype=np.float64)
-            tex = pbr.get("baseColorTexture", {}) or {}
-            if isinstance(tex.get("index"), int):
-                texture = self.doc.get("textures", [])[tex["index"]]
-                if isinstance(texture.get("source"), int):
-                    image_index = texture["source"]
+        if "material" not in prim:
+            return np.tile(np.array([0.8, 0.8, 0.8]), (n, 1))
 
-        if image_index is None:
-            return np.tile(np.clip(factor, 0.0, 1.0), (n, 1))
+        mat = self.doc.get("materials", [])[prim["material"]]
+        pbr = mat.get("pbrMetallicRoughness", {}) or {}
+        base = self._sample(
+            pbr.get("baseColorTexture"),
+            np.array(pbr.get("baseColorFactor", (0.8, 0.8, 0.8))[:3],
+                     dtype=np.float64),
+            uv, n)
 
-        img = self._image(image_index)
+        # Toon and unlit models — this includes every MToon/VRM export and
+        # most anime characters — set the base colour to pure black and put
+        # the artwork in the emissive channel, so a lit renderer cannot
+        # darken it. Read as base colour we would get a black silhouette.
+        if base.max() < 0.02:
+            emissive = self._sample(
+                mat.get("emissiveTexture"),
+                np.array(mat.get("emissiveFactor", (0.0, 0.0, 0.0))[:3],
+                         dtype=np.float64),
+                uv, n)
+            if emissive.max() >= 0.02:
+                base = emissive
+
+        return np.clip(base, 0.0, 1.0)
+
+    def _sample(self, tex_spec: Optional[dict], factor: np.ndarray,
+                uv: np.ndarray, n: int) -> np.ndarray:
+        """`factor`, modulated by a texture point-sampled at each vertex UV."""
+        source: Optional[int] = None
+        if isinstance((tex_spec or {}).get("index"), int):
+            texture = self.doc.get("textures", [])[tex_spec["index"]]
+            if isinstance(texture.get("source"), int):
+                source = texture["source"]
+
+        img = self._image(source) if source is not None else None
         if img is None:
-            return np.tile(np.clip(factor, 0.0, 1.0), (n, 1))
+            return np.tile(factor, (n, 1))
 
         h, w = img.shape[:2]
         # glTF UV origin is top-left; wrap so out-of-range UVs still land.
         u = np.clip((np.mod(uv[:, 0], 1.0) * w).astype(np.int64), 0, w - 1)
         v = np.clip((np.mod(uv[:, 1], 1.0) * h).astype(np.int64), 0, h - 1)
-        return np.clip(img[v, u] * factor, 0.0, 1.0)
+        return img[v, u] * factor
 
     def _image(self, index: int):
         """Decode image `index` to an (h, w, 3) float array, or None."""
@@ -592,25 +611,78 @@ class SkinnedMesh:
         self.weights = self.weights / s
 
     def decimate(self, max_vertices: int) -> None:
-        """Drop whole triangles until the vertex count fits the budget.
+        """Merge vertices onto a uniform grid until the budget is met.
 
         Skinning cost is linear in vertices and we re-skin every frame, so a
-        60k-vertex VRoid model is worth thinning for a live preview. Triangles
-        are dropped on a regular stride rather than by any error metric —
-        crude, but it keeps the silhouette and costs nothing to compute.
+        200k-vertex character is worth thinning for a live preview.
+
+        Vertex *clustering*, not triangle dropping. Dropping every n-th
+        triangle barely helps: the survivors are spread across the whole mesh
+        and still reference nearly every vertex. Snapping to a grid and
+        merging each cell to one vertex reduces the count by construction,
+        and collapses the triangles that become degenerate.
+
+        The grid resolution is found by bisection — the finest grid whose
+        occupied-cell count still fits the budget, so we keep as much detail
+        as the budget allows. Attributes are averaged within a cell; skin
+        bindings are taken from one representative vertex, since averaging
+        joint *indices* is meaningless.
         """
         if self.n_vertices <= max_vertices or len(self.triangles) == 0:
             return
-        keep_frac = max_vertices / float(self.n_vertices)
-        step = max(1, int(round(1.0 / keep_frac)))
-        tri = self.triangles[::step]
-        used = np.unique(tri)
-        remap = np.full(self.n_vertices, -1, dtype=np.int64)
-        remap[used] = np.arange(len(used))
-        self.triangles = remap[tri]
-        for name in ("positions", "normals", "uvs", "colors",
-                     "joints", "weights"):
-            setattr(self, name, getattr(self, name)[used])
+
+        p = self.positions
+        lo = p.min(axis=0)
+        extent = np.maximum(p.max(axis=0) - lo, 1e-9)
+
+        best: Optional[np.ndarray] = None
+        low, high = 2, 1024
+        while low <= high:
+            n = (low + high) // 2
+            key = np.minimum(((p - lo) / extent * n).astype(np.int64), n - 1)
+            flat = (key[:, 0] * n + key[:, 1]) * n + key[:, 2]
+            _, inverse = np.unique(flat, return_inverse=True)
+            if inverse.max() + 1 <= max_vertices:
+                best = inverse
+                low = n + 1
+            else:
+                high = n - 1
+        if best is None:
+            return                      # even a 2^3 grid overflows: give up
+
+        inverse = best
+        count = int(inverse.max()) + 1
+        occupancy = np.bincount(inverse, minlength=count).astype(np.float64)
+
+        def cluster_mean(arr: np.ndarray) -> np.ndarray:
+            out = np.empty((count, arr.shape[1]))
+            for c in range(arr.shape[1]):
+                out[:, c] = np.bincount(inverse, weights=arr[:, c],
+                                        minlength=count)
+            return out / occupancy[:, None]
+
+        # One representative vertex per cell, for the attributes that cannot
+        # be averaged. Writing indices in reverse leaves the lowest per cell.
+        representative = np.empty(count, dtype=np.int64)
+        order = np.arange(len(inverse))[::-1]
+        representative[inverse[::-1]] = order
+
+        positions = cluster_mean(self.positions)
+        normals = cluster_mean(self.normals)
+        ln = np.linalg.norm(normals, axis=1, keepdims=True)
+        ln[ln < 1e-9] = 1.0
+
+        tri = inverse[self.triangles]
+        keep = ((tri[:, 0] != tri[:, 1]) & (tri[:, 1] != tri[:, 2])
+                & (tri[:, 0] != tri[:, 2]))
+
+        self.positions = positions
+        self.normals = normals / ln
+        self.uvs = cluster_mean(self.uvs)
+        self.colors = cluster_mean(self.colors)
+        self.joints = self.joints[representative]
+        self.weights = self.weights[representative]
+        self.triangles = tri[keep]
 
     def skin(self, skin_matrices: np.ndarray,
              with_normals: bool = True) -> tuple[np.ndarray, np.ndarray]:

@@ -69,6 +69,10 @@ rclone.conf
 *.json
 !config/*.json
 !**/labels.json
+# Hand-written rig descriptions for avatar models. Small, and working a rig
+# out once should not have to be done twice — unlike the models themselves,
+# which the root .gitignore keeps out.
+!assets/avatars/*.rig.json
 
 # ── Video/image captures ──
 *.mp4

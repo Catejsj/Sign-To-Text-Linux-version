@@ -98,14 +98,13 @@ def _load_shared(path: Path, max_vertices: int, hand_scale: float):
         import sys
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
-        from src.gltf_min import Gltf, GltfError
-        from src.avatar_pose import AvatarRig
+        from src.gltf_min import GltfError
+        from src.avatar_pose import load_rig
 
         try:
-            gltf = Gltf.load(path)
-            bones = gltf.humanoid_bones() or gltf.guess_humanoid_bones()
-            mesh = gltf.skinned_mesh(max_vertices=max_vertices)
-            rig = AvatarRig(mesh, bones, hand_scale=hand_scale)
+            rig = load_rig(path, max_vertices=max_vertices,
+                           hand_scale=hand_scale)
+            mesh = rig.mesh
         except (GltfError, ValueError, KeyError, IndexError) as exc:
             raise AvatarUnavailable(
                 f"{path.name} could not be used: {exc}  "

@@ -44,6 +44,36 @@ VRM files carry a humanoid bone table, so they map automatically. A plain
 Mixamo, Blender and VRoid naming all work, but `check_avatar.py` will show you
 what it guessed.
 
+## When the automatic matcher fails: `<model>.rig.json`
+
+Some exports need to be described by hand. Write a sidecar next to the model
+— `elaina.glb` → `elaina.glb.rig.json` — and it overrides everything the
+loader guessed. Start one with:
+
+```bash
+./venv/bin/python scripts/check_avatar.py assets/avatars/model.glb --write-rig-template
+```
+
+It has two maps, both keyed by node names exactly as `check_avatar.py` prints
+them:
+
+| key | what it fixes |
+|---|---|
+| `bones` | the matcher picked the wrong node, or none. Rigs that call the upper arm `arm.l`, or bury it among 70 IK/FK controls, land here. |
+| `chain_parents` | the export **flattened** the skeleton — the bones carrying skin weight are all parented to one root instead of to each other, so rotating the upper arm leaves the forearm behind. List `child: parent` to rejoin the chain. |
+
+`chain_parents` changes only what *inherits* motion; rest positions are read
+from the file and are unaffected.
+
+**`check_avatar.py` tells you which one you need.** It poses the rig and
+measures whether each arm segment actually points where it was aimed. A
+flattened hierarchy reports `BROKEN — the arms do not follow`, with 90°-ish
+errors; a correct one reports `0.00° error`. That check exists because a
+flat rig poses without any error at all and is only wrong once it moves.
+
+`elaina_-_the_witchs_journey.glb.rig.json` in this folder is a worked example
+— an Auto-Rig Pro rig exported through Sketchfab, needing both maps.
+
 ## What is driven, and what is not
 
 The capture gives six body joints and a nose. So:

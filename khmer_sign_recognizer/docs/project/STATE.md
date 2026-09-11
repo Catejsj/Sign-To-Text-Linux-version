@@ -69,11 +69,33 @@ attacks have failed to move it (R.3, R.4, R.1, S), which is strong evidence it
 is a *data* problem. **The untried lever is recording more of just those two
 signs.** See §5 of the Task A report, which said this before any of it.
 
-**2. Hand tracking.** 92% of the model's signal is the hands, and poor light
-drops hand detection to 33–42% (D4). A camera check measured 37.7% / 51.7% in
-one session. `check_camera.py` grades it. No model change survives a dim room —
-run this before suspecting anything else. (User reports recording in daylight;
-worth one confirming run.)
+**2. Hand tracking — CONFIRMED as the live bottleneck, 2026-09-11.**
+92% of the model's signal is the hands, and `check_camera.py` over 20 s in the
+actual working conditions measured:
+
+| | |
+|---|---|
+| body detected | 99.7% — a person was plainly in frame |
+| **left hand** | **42.0%** |
+| **right hand** | **43.8%** |
+| hand lost mid-use | **16 left, 19 right** — ~1.75 dropouts/second |
+| capture rate | 29/s, so this is not CPU throttling (A12) |
+
+42% is the *white-bulb* number from D4. It had been assumed this was fine
+because the room has daylight; it is not. **Pose is perfect and the hands are
+what the tracker loses**, so the fix is light on the hands specifically, from
+the front — not a brighter room, and not code. Image enhancement was already
+built for exactly this, reached ~57%, and was removed as insufficient (D4).
+
+The dropout *rate* is the part that breaks recognition rather than the
+detection rate alone. The corpus has one contiguous dropout episode per take
+and only **0.2% of frames are "hand seen, then lost"** (P.1); live is
+producing ~35 such transitions in 20 seconds. **The model has never seen this
+pattern** — P.2 predicted it, and this is it happening. Not a model defect:
+the input is a kind the model was never shown.
+
+Re-run `check_camera.py` after adding light and expect >90% before judging any
+model. No architecture change survives 42%.
 
 **3. Seng Menghong is an outlier.** Complete 77.9 against 91–99 for everyone
 else, and **23 hello/thanks errors** where the next worst is 8. Not the

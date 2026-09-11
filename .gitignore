@@ -31,11 +31,3 @@ desktop.ini
 .idea/
 *.swp
 *~
-
-# Avatar models — tens of MB each, and each carries its own licence.
-# The README and the hand-written .rig.json descriptions are tracked (small,
-# and a rig worked out once should not have to be worked out again); the
-# model files themselves are not.
-khmer_sign_recognizer/assets/avatars/*
-!khmer_sign_recognizer/assets/avatars/README.md
-!khmer_sign_recognizer/assets/avatars/*.rig.json

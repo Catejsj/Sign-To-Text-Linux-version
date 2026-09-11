@@ -42,7 +42,6 @@ python scripts/record_session.py --signer YOURTAG --lang khmer_var --duration 2
 | `--duration` | seconds per take (default 2 → 60 frames) |
 | `--synthetic N` | also generate N synthetic body-variants per take |
 | `--mannequin N` | how many mannequins in the 3D window; `0` disables it |
-| `--skin` | `classic` (capsule mannequin) or `anime` (a rigged VRM) — display only, see §9 |
 
 ---
 
@@ -209,61 +208,6 @@ python scripts/mannequin_local.py --playback data/sequences_v2/khmer_var --count
 ```
 
 `--view noisy` shows the raw image-space view instead of the normalised one.
-
-### The avatar, in the browser
-
-`./run_web.sh` → the **3D view** card → **Show avatar**. This is the good one:
-three.js renders the character on the GPU, so it draws at full detail with its
-real textures instead of the decimated, vertex-coloured version the desktop
-window manages. Only the landmarks cross the wire; the retargeting runs in the
-page.
-
-It needs a model in `assets/avatars/` — the same one the desktop skin uses,
-and the same `<model>.rig.json` if the rig needed describing.
-
-### Wearing an anime avatar in the desktop window
-
-The desktop 3D figure has two skins. `classic` is the tan capsule mannequin; `anime`
-is a rigged VRM/glTF character posed by the same joints. Switch it in the web
-panel under **Configuration → Body**, or from the command line:
-
-```bash
-python scripts/mannequin_local.py --skin anime
-```
-
-Put a `.vrm` in `assets/avatars/` first — the newest file there is the one
-used, and `--avatar FILE` picks a specific one. See
-[`assets/avatars/README.md`](../../assets/avatars/README.md) for where to get
-a model and which licences to watch.
-
-Check a file before wondering why it looks wrong:
-
-```bash
-python scripts/check_avatar.py assets/avatars/your_model.vrm
-```
-
-It prints the bone map, the vertex count and the per-frame skinning cost, and
-names what is missing if the model cannot be driven. Crucially it also **poses
-the rig and measures whether the arms follow** — a flattened export poses
-without error and only looks wrong once it moves, so `0.00° error` on all four
-arm segments is the check that matters.
-
-If the automatic bone matching fails, describe the rig in a
-`<model>.rig.json` sidecar (`--write-rig-template` starts one); see
-[`assets/avatars/README.md`](../../assets/avatars/README.md).
-
-`--selftest` instead verifies the retargeting math against a synthetic rig —
-run that after touching `src/gltf_min.py` or `src/avatar_pose.py`.
-
-**The arms and head follow you; the torso and fingers do not.** The capture
-gives six body joints and a nose, so the arms are aimed directly and the head
-turns toward the nose. The model's own hands are hidden and the 21-point
-landmark rig is drawn instead — a VRM's finger bones cannot be recovered from
-our data, and a frozen open palm reads worse than an honest wireframe.
-
-Nothing here touches recording or training: the skin is a display setting, and
-if an avatar fails to load the engine falls back to the classic body rather
-than interrupting a session.
 
 ---
 

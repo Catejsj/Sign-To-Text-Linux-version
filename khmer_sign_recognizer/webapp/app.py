@@ -14,33 +14,13 @@ main thread.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from threading import Lock
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
 from webapp import library
 from webapp.engine import RecorderEngine, HAS_OPEN3D, list_models
-
-try:
-    from scripts.mannequin_skins import find_avatar as avatar_file
-except ImportError:                       # no Open3D installed
-    def avatar_file(explicit=None):
-        """Locate an avatar without importing the Open3D-backed skins module.
-
-        The browser viewer does not need Open3D at all, so a machine with no
-        Open3D should still be able to serve a model to the page.
-        """
-        folder = Path(__file__).resolve().parents[1] / "assets" / "avatars"
-        if not folder.is_dir():
-            return None
-        found = [p for p in folder.iterdir()
-                 if p.suffix.lower() in (".vrm", ".glb", ".gltf") and p.is_file()]
-        if not found:
-            return None
-        found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        return found[0]
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -168,84 +148,12 @@ def create_app(state: AppState) -> Flask:
             synthetic=data.get("synthetic"),
             duration=data.get("duration"),
             view=data.get("view"),
-            skin=data.get("skin"),
         )
         if data.get("lang"):
             engine.set_language(data["lang"])
         if data.get("signer"):
             engine.set_signer(data["signer"])
         return jsonify(ok=True, config=engine.snapshot()["config"])
-
-    # ── browser 3D view ──
-    @app.get("/api/landmarks")
-    def api_landmarks():
-        """The current frame's scene coordinates.
-
-        Polled rather than streamed: the page asks about as often as the
-        camera produces frames, and `seq` tells it when nothing is new. A
-        Server-Sent Events stream would shave a few milliseconds and add a
-        connection lifecycle to get wrong on a dev server.
-        """
-        return jsonify(engine.landmark_snapshot())
-
-    @app.get("/api/avatar/model")
-    def api_avatar_model():
-        """The avatar file itself, for three.js to load in the browser."""
-        path = avatar_file()
-        if path is None:
-            return jsonify(error="no avatar file"), 404
-        return send_file(path, mimetype="model/gltf-binary",
-                         conditional=True)
-
-    _rig_cache: dict = {}
-
-    @app.get("/api/avatar/rig")
-    def api_avatar_rig():
-        """The rig description for the browser viewer.
-
-        Returns the `<model>.rig.json` sidecar plus `resolved_bones`: the
-        humanoid bone map as Python worked it out, by node name.
-
-        Resolving bones in one place is the point. Both viewers used to match
-        bone names independently and they drifted twice — once on an
-        Auto-Rig Pro rig calling the upper arm `arm.l`, once on a VRChat rig
-        calling the forearm `Lower_Arm_L`, each time working in Python and
-        failing silently in the browser. The Python matcher is the one
-        `check_avatar.py` exercises, so it is the one that decides; the
-        browser keeps its own table only as a fallback for when this fails.
-        """
-        path = avatar_file()
-        if path is None:
-            return jsonify({})
-
-        spec: dict = {}
-        sidecar = Path(str(path) + ".rig.json")
-        if sidecar.exists():
-            try:
-                spec = json.loads(sidecar.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as exc:
-                return jsonify(
-                    error=f"{sidecar.name} is not valid JSON: {exc}"), 400
-
-        key = (str(path), path.stat().st_mtime_ns)
-        if key not in _rig_cache:
-            _rig_cache.clear()          # only ever one avatar at a time
-            try:
-                from src.gltf_min import Gltf
-                gltf = Gltf.load(path)
-                bones = gltf.humanoid_bones() or gltf.guess_humanoid_bones()
-                nodes = gltf.doc.get("nodes", [])
-                _rig_cache[key] = {
-                    b: nodes[i].get("name", "")
-                    for b, i in bones.items()
-                    if 0 <= i < len(nodes) and nodes[i].get("name")
-                }
-            except Exception:
-                # Never fail the page over this — the browser can still fall
-                # back to its own name matching.
-                _rig_cache[key] = {}
-        spec["resolved_bones"] = _rig_cache[key]
-        return jsonify(spec)
 
     # ── deletion (record mode only) ──
     @app.delete("/api/takes")

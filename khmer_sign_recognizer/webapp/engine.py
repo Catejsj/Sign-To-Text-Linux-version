@@ -49,17 +49,9 @@ try:
     from scripts.mannequin_local import (                              # noqa: E402
         LINE_WIDTH, Mannequin, retarget_scene, body_to_3d, hand_to_3d,
     )
-    from scripts.mannequin_skins import (                              # noqa: E402
-        SKINS, DEFAULT_SKIN, AvatarUnavailable, avatar_status, make_mannequin,
-    )
     HAS_OPEN3D = True
 except ImportError:
-    SKINS, DEFAULT_SKIN = ("classic", "anime"), "classic"
     HAS_OPEN3D = False
-
-    def avatar_status(explicit=None) -> dict:                          # noqa: E302
-        return {"available": False, "name": None,
-                "hint": "Open3D is not installed, so there is no 3D view."}
 
 CAM_WINDOW = "SignLink — Camera + Mannequin"
 
@@ -84,11 +76,6 @@ class RecorderEngine:
         self.desired_mannequin = 1 if HAS_OPEN3D else 0
         # which panes the native window shows: "both" | "camera" | "mannequin"
         self.view = "both"
-        # which body the 3D view draws: "classic" | "anime"
-        self.skin = DEFAULT_SKIN
-        # Set when an anime build failed, so the UI can say why instead of
-        # silently showing the classic figure and looking broken.
-        self.skin_error = ""
 
         # ── recording state (owned by tick / main thread) ──
         self.state = "IDLE"
@@ -115,15 +102,7 @@ class RecorderEngine:
         self.synths: list[tuple] = []
         self.current_mannequin = 0
         self.current_view = "both"
-        self.current_skin = DEFAULT_SKIN
         self.running = False
-
-        # ── landmark feed for the browser 3D view ──
-        # `seq` lets the page skip re-rendering a frame it already drew, which
-        # is what stops a fast poll from burning GPU on duplicates.
-        self._landmark_seq = 0
-        self.latest_landmarks: dict = {"seq": 0, "joints": {},
-                                       "lhand": None, "rhand": None}
 
     # ── lifecycle (main thread) ──────────────────────────────────────
     def start(self, mannequins: bool = True) -> bool:
@@ -196,13 +175,9 @@ class RecorderEngine:
     def _build_mannequins(self, n: int) -> None:
         if not HAS_OPEN3D or n <= 0:
             self.current_mannequin = 0
-            with self.lock:
-                self.current_skin = self.skin   # nothing built, but agreed
             return
         spacing = 2.6
         xs = (np.arange(n) - (n - 1) / 2.0) * spacing
-        with self.lock:
-            skin = self.skin
         self.synths = []
         for i in range(n):
             body = dict(
@@ -212,22 +187,7 @@ class RecorderEngine:
                 hd=float(self.rng.uniform(0.80, 1.20)),
                 xoff=float(xs[i]),
             )
-            try:
-                figure = make_mannequin(
-                    skin, body_scale=float(self.rng.uniform(0.85, 1.15)))
-            except AvatarUnavailable as exc:
-                # A cosmetic setting must never take a recording session down.
-                # Fall back to the classic body and tell the UI why.
-                with self.lock:
-                    self.skin_error = str(exc)
-                    self.skin = DEFAULT_SKIN
-                skin = DEFAULT_SKIN
-                figure = make_mannequin(DEFAULT_SKIN)
-            self.synths.append((figure, body))
-        with self.lock:
-            if skin == self.skin:
-                self.skin_error = ""
-        self.current_skin = skin
+            self.synths.append((Mannequin(), body))
         self.vis = o3d.visualization.Visualizer()
         self.vis.create_window("SignLink mannequin (offscreen)",
                                width=MANNEQUIN_W, height=MANNEQUIN_H,
@@ -238,9 +198,6 @@ class RecorderEngine:
         opt = self.vis.get_render_option()
         opt.background_color = np.array([0.05, 0.06, 0.09])
         opt.light_on = True
-        # The hands are LineSets, and Open3D draws lines 1px wide by default.
-        # Against a character they are effectively invisible — this is why the
-        # anime skin looked like it had no hands at all.
         opt.line_width = LINE_WIDTH
         vc = self.vis.get_view_control()
         vc.set_front([0.0, 0.0, 1.0]); vc.set_up([0.0, 1.0, 0.0])
@@ -278,12 +235,8 @@ class RecorderEngine:
                 self.language = language
 
     def set_config(self, mannequin=None, synthetic=None, duration=None,
-                   view=None, skin=None) -> None:
+                   view=None) -> None:
         with self.lock:
-            if skin in SKINS:
-                if skin != self.skin:
-                    self.skin_error = ""   # a fresh choice deserves a retry
-                self.skin = skin
             if mannequin is not None:
                 self.desired_mannequin = max(0, int(mannequin))
             if synthetic is not None:
@@ -400,9 +353,7 @@ class RecorderEngine:
                     "synthetic": self.synthetic,
                     "duration": self.duration,
                     "view": self.view,
-                    "skin": self.skin,
                 },
-                "avatar": {**avatar_status(), "error": self.skin_error},
             }
 
     # ── per-frame update (main thread) ───────────────────────────────
@@ -410,15 +361,13 @@ class RecorderEngine:
         if not self.running or self.capture is None:
             return
 
-        # apply pending view / mannequin-count / skin changes (o3d must run here)
+        # apply pending view / mannequin-count changes (o3d must run here)
         with self.lock:
             view = self.view
             desired = self.desired_mannequin
-            skin = self.skin
         needed = self._needed_mannequin(view, desired)
-        if (needed != self.current_mannequin or view != self.current_view
-                or skin != self.current_skin):
-            if needed != self.current_mannequin or skin != self.current_skin:
+        if needed != self.current_mannequin or view != self.current_view:
+            if needed != self.current_mannequin:
                 self._teardown_mannequins()
                 self._build_mannequins(needed)
             self.current_view = view
@@ -440,9 +389,6 @@ class RecorderEngine:
         now = time.time()
 
         self._advance_state(pose, lh, rh, now)
-
-        if has_pose:
-            self.publish_landmarks(pose, lh, rh)
 
         # render the mannequin pane (still driven by the camera pose even when
         # the camera itself is hidden)
@@ -562,14 +508,7 @@ class RecorderEngine:
         width = max(1, int(img.shape[1] * height / img.shape[0]))
         return cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)
 
-    def scene_from_pose(self, pose: dict, lh: dict, rh: dict):
-        """Camera landmarks → the 3D scene coordinates every viewer uses.
-
-        Split out of `_update_mannequins` so the browser viewer sees exactly
-        the same numbers as the desktop window, including the forward push on
-        the wrists. Two viewers deriving scene coordinates separately would
-        drift apart the first time either was touched.
-        """
+    def _update_mannequins(self, pose: dict, lh: dict, rh: dict) -> None:
         scene_joints: dict[str, np.ndarray] = {}
         name_map = {
             "left_shoulder": "l_shoulder", "right_shoulder": "r_shoulder",
@@ -596,36 +535,6 @@ class RecorderEngine:
         if "r_wrist" in scene_joints:
             scene_rhand = hand_to_3d(rh, self.img_w, self.img_h,
                                      scene_joints["r_wrist"])
-        return scene_joints, scene_lhand, scene_rhand
-
-    def publish_landmarks(self, pose: dict, lh: dict, rh: dict) -> None:
-        """Store the current frame's scene coordinates for the browser view.
-
-        Runs every tick regardless of whether the Open3D window exists, so
-        the browser viewer works with the desktop 3D pane switched off — the
-        point of having it at all. Costs a handful of small array conversions.
-        """
-        joints, lhand, rhand = self.scene_from_pose(pose, lh, rh)
-        payload = {
-            "seq": self._landmark_seq + 1,
-            "joints": {k: [round(float(c), 5) for c in v]
-                       for k, v in joints.items()},
-            "lhand": None if lhand is None else
-                     [[round(float(c), 5) for c in p] for p in lhand],
-            "rhand": None if rhand is None else
-                     [[round(float(c), 5) for c in p] for p in rhand],
-        }
-        with self.lock:
-            self._landmark_seq += 1
-            self.latest_landmarks = payload
-
-    def landmark_snapshot(self) -> dict:
-        with self.lock:
-            return self.latest_landmarks
-
-    def _update_mannequins(self, pose: dict, lh: dict, rh: dict) -> None:
-        scene_joints, scene_lhand, scene_rhand = self.scene_from_pose(
-            pose, lh, rh)
         for mq, body in self.synths:
             sj, sl, sr = retarget_scene(
                 scene_joints, scene_lhand, scene_rhand,

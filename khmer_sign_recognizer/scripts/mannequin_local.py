@@ -80,9 +80,10 @@ SCALE = 2.4
 # short enough that a genuinely-gone hand doesn't linger as a ghost.
 HAND_HIDE_AGE = 10
 
-# Open3D draws LineSets 1 pixel wide by default, which against a textured
-# character is invisible — the anime skin looked like it had no hands at all.
-# Every window that shows a figure sets this.
+# Open3D draws LineSets one pixel wide unless told otherwise, and the hands
+# are LineSets. At 1px the finger rig is nearly invisible against the figure —
+# it looked like the mannequin had no hands at all. Every window that shows a
+# figure sets this.
 LINE_WIDTH = 4.0
 
 
@@ -445,28 +446,8 @@ def _label_for(npy_path: Path) -> str:
         return npy_path.parent.name
 
 
-def build_figure(skin: str = "classic", avatar: str | None = None,
-                 body_scale: float = 1.0):
-    """One figure of the requested skin, falling back to classic with a note.
-
-    Imported lazily because `mannequin_skins` imports *this* module for the
-    hand topology and the Wayland fix — taking the dependency at module level
-    would be a cycle.
-    """
-    if skin == "classic":
-        return Mannequin()
-    from scripts.mannequin_skins import AvatarUnavailable, make_mannequin
-    try:
-        return make_mannequin(skin, avatar=avatar, body_scale=body_scale)
-    except AvatarUnavailable as exc:
-        print(f"anime skin unavailable: {exc}")
-        print("falling back to the classic mannequin.\n")
-        return Mannequin()
-
-
 def run_playback(folder: Path, count: int, fps: float = 12.0,
-                 prefer_view: str = "clean", skin: str = "classic",
-                 avatar: str | None = None) -> None:
+                 prefer_view: str = "clean") -> None:
     """Animate `count` random saved takes from `folder` in the 3D mannequin.
 
     Picks files matching `*real__<view>__*.npy` so we only play back real
@@ -487,7 +468,7 @@ def run_playback(folder: Path, count: int, fps: float = 12.0,
     print(f"playback: {len(files)} files available, showing {pick}")
     print("close the Open3D window to quit.\n")
 
-    mannequin = build_figure(skin, avatar)
+    mannequin = Mannequin()
     vis = o3d.visualization.Visualizer()
     vis.create_window("SignLink — Playback", width=1100, height=820)
     for g in mannequin.geometries():
@@ -581,13 +562,6 @@ def main() -> None:
                     help="playback speed in --playback mode "
                          "(default 12; the takes were recorded at 30, "
                          "so 12 plays them slow enough to follow).")
-    ap.add_argument("--skin", choices=["classic", "anime"], default="classic",
-                    help="which body to draw: the tan capsule mannequin, or "
-                         "a rigged VRM/glTF character from assets/avatars/ "
-                         "(default: classic).")
-    ap.add_argument("--avatar", type=str, default=None, metavar="FILE",
-                    help="a specific .vrm/.glb to use with --skin anime. "
-                         "Without it the newest file in assets/avatars/ wins.")
     args = ap.parse_args()
 
     if args.playback:
@@ -595,7 +569,7 @@ def main() -> None:
         if not folder.exists():
             sys.exit(f"--playback folder does not exist: {folder}")
         run_playback(folder, count=args.count, prefer_view=args.view,
-                     fps=args.fps, skin=args.skin, avatar=args.avatar)
+                     fps=args.fps)
         return
 
     # Live mode needs the camera + landmark pipeline. Import here so
@@ -625,7 +599,7 @@ def main() -> None:
     N = max(1, args.synthetic)
     spacing = 2.6
     xs = (np.arange(N) - (N - 1) / 2.0) * spacing   # centred row of figures
-    synths: list[tuple] = []
+    synths: list[tuple[Mannequin, dict]] = []
     for i in range(N):
         body = dict(
             sh=float(rng.uniform(0.80, 1.20)),
@@ -634,9 +608,7 @@ def main() -> None:
             hd=float(rng.uniform(0.80, 1.20)),
             xoff=float(xs[i]),
         )
-        synths.append((build_figure(args.skin, args.avatar,
-                                    body_scale=float(rng.uniform(0.85, 1.15))),
-                       body))
+        synths.append((Mannequin(), body))
 
     vis = o3d.visualization.Visualizer()
     vis.create_window("SignLink — Synthetic Signers", width=1200, height=850)

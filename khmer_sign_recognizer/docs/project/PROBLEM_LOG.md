@@ -1154,6 +1154,41 @@ disagrees with the reported scores.
 **No code change fixes this.** Enhancement was already built, measured and
 removed (§D4). More light on the hands is the fix.
 
+### P.5 It is motion, not ambient level — 92.6% still vs 33% moving
+
+*2026-09-11. Three `check_camera.py` runs, same room, same evening, same
+camera, nothing in the code changed between them.*
+
+| run | hands | body | dropouts / 20 s |
+|---|---|---|---|
+| signing normally | 42.0% / 43.8% | 99.7% | 16 / 19 |
+| signing, ~20 min later | 33.7% / 32.0% | 99.7% | 13 / 17 |
+| **hands held still on the chest** | **92.6% / 92.6%** | 99.7% | **1 / 1** |
+
+**The room can reach 92.6%. Movement is what destroys it.** A 59-point gap
+with the ambient level unchanged, and the dropout count collapses from ~30 per
+20 s to 2.
+
+This identifies the mechanism, which §D4 and §P.2 described only as "dim light
+hurts". In low light the camera lengthens its exposure. The torso is nearly
+static and stays sharp — body detection is 99.7% in every run, so framing,
+distance and the camera are all fine. The hands are the fastest thing in frame
+and smear, and MediaPipe cannot land a landmark on a blurred hand.
+
+It also explains the D4 result that looked contradictory: raising shutter
+speed to cut the blur dropped *pose* detection from 100% to 0%, because a
+shorter exposure darkens everything. There is no trade to make between blur
+and brightness at a fixed light level. **More light is the only lever that
+moves both** — it shortens the exposure and brightens the hands at once.
+
+Note also the ~10-point drift between the two signing runs, twenty minutes
+apart with no change made. Daylight fading is enough to move this measurement
+materially, which means a single good reading does not certify a room.
+
+**Consequence for the corpus:** takes recorded while *signing* in this
+lighting carry the flicker pattern of §P.1–P.2, not the clean tracking the
+existing corpus has. Check the camera before a session, not after.
+
 ### P.4 If the camera checks out and it is still bad
 
 Then the honest explanation is the one in §O.8: the unseen-signer figure is

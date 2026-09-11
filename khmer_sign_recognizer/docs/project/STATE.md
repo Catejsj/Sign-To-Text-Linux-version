@@ -82,10 +82,20 @@ actual working conditions measured:
 | capture rate | 29/s, so this is not CPU throttling (A12) |
 
 42% is the *white-bulb* number from D4. It had been assumed this was fine
-because the room has daylight; it is not. **Pose is perfect and the hands are
-what the tracker loses**, so the fix is light on the hands specifically, from
-the front — not a brighter room, and not code. Image enhancement was already
-built for exactly this, reached ~57%, and was removed as insufficient (D4).
+because the room has daylight; it is not.
+
+**The cause is motion blur, not the ambient level (P.5).** Holding the hands
+still in the same room, same light, same minute gives **92.6% / 92.6% with 1
+dropout each**. Signing gives 33%. The room can do it; movement is what breaks
+it — in dim light the exposure lengthens, the torso stays sharp (body is 99.7%
+in every run) and the hands smear.
+
+So the fix is light on the hands, from the front, and nothing else moves the
+needle: a shorter exposure darkens everything (D4 measured pose going 100% →
+0% that way), and image enhancement was built for exactly this, reached ~57%,
+and was removed as insufficient. A second signing run 20 minutes later drifted
+~10 points lower on its own, so **check the camera before each session** — one
+good reading does not certify a room.
 
 The dropout *rate* is the part that breaks recognition rather than the
 detection rate alone. The corpus has one contiguous dropout episode per take

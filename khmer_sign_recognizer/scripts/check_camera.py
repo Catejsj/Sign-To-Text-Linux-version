@@ -142,6 +142,17 @@ def main() -> None:
     left_runs = right_runs = 0          # how often a hand is LOST mid-stream
     prev_l = prev_r = False
     preview = args.preview
+    window_was_up = False
+    stopped_early = ""
+    if preview:
+        # Create the window explicitly rather than letting imshow do it, so it
+        # can be sized and so getWindowProperty has something real to report.
+        try:
+            cv2.namedWindow(PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(PREVIEW_WINDOW, 960, 720)
+        except cv2.error:
+            preview = False
+            print("  (no display available — continuing without the preview)")
     t0 = time.time()
     next_tick = t0
     try:
@@ -178,10 +189,23 @@ def main() -> None:
                               lost_l=left_runs, lost_r=right_runs)
                     cv2.imshow(PREVIEW_WINDOW, frame)
                     if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                        stopped_early = "you pressed q"
                         break
-                    if cv2.getWindowProperty(
-                            PREVIEW_WINDOW, cv2.WND_PROP_VISIBLE) < 1:
-                        break                      # window closed
+                    # Window-close detection, carefully.
+                    #
+                    # The usual idiom is `WND_PROP_VISIBLE < 1`, and it is
+                    # wrong here: a window that exists but has not been mapped
+                    # yet also reports 0, so the run aborted after about two
+                    # seconds every time. Only -1 means "no such window", and
+                    # even that is only trusted once the window has been seen
+                    # alive, so a slow compositor cannot end the run either.
+                    alive = cv2.getWindowProperty(
+                        PREVIEW_WINDOW, cv2.WND_PROP_VISIBLE)
+                    if alive >= 1:
+                        window_was_up = True
+                    elif window_was_up and alive < 0:
+                        stopped_early = "you closed the window"
+                        break
                 except cv2.error:
                     # No display (SSH, headless, a Wayland/GLFW refusal). The
                     # measurement is the point; the window is a convenience,
@@ -240,6 +264,8 @@ def main() -> None:
     if elapsed < 10:
         print(f"  RUN TOO SHORT ({elapsed:.0f}s) to judge anything — MediaPipe")
         print("  needs several seconds to warm up. Use --seconds 15 or more.")
+        if stopped_early:
+            print(f"  (it ended early because {stopped_early})")
         return
     if b < 40:
         print(f"  NO PERSON DETECTED ({b:.0f}% of frames had a body).")

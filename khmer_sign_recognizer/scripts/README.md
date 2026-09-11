@@ -12,7 +12,7 @@ every one takes `--help`. Full usage: [docs/guides/COMMANDS.md](../docs/guides/C
 ## Before you share data
 | | |
 |---|---|
-| `check_camera.py` | **Run this first when live recognition disappoints.** Reports how often the tracker actually finds each hand. 92% of the model's signal is the hands. |
+| `check_camera.py` | **Run this first when live recognition disappoints.** Reports how often the tracker actually finds each hand, with a live preview showing exactly when they drop out. 92% of the model's signal is the hands. |
 | `check_labels.py` | Does your `labels.json` agree with the team's? A mismatch trains the wrong thing with no error. |
 | `verify_pool.py` | Duplicate signer tags, missing sidecars, wrong shapes, synthetic that no longer divides evenly. Run after **every** import. |
 | `export_recordings.py` | Collect your own takes into one folder for Drive. `--lang` for one corpus, and synthetic is skipped on purpose. |

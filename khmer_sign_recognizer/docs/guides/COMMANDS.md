@@ -246,7 +246,7 @@ Class IDs are listed in `data/external/SignList_ClassId_TR_EN.csv`
 ## 11. Check the camera before blaming the model
 
 ```bash
-python scripts/check_camera.py --seconds 20
+python scripts/check_camera.py --seconds 20      # preview window; --no-preview for SSH
 ```
 
 Sign normally while it runs. It reports how often the tracker actually finds

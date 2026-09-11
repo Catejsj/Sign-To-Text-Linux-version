@@ -19,6 +19,13 @@ live recognition can feel far worse than any offline score suggests.
 
     python scripts/check_camera.py                 # 15 seconds, sign normally
     python scripts/check_camera.py --seconds 30
+    python scripts/check_camera.py --no-preview    # headless / over SSH
+
+A preview window shows the camera with the tracker's own skeleton and hand
+overlays, and flags each hand GREEN or RED as it is found and lost. Watch it
+while you sign: *where in the movement* the hands drop out is the most useful
+thing this script can tell you, and no summary line can. The view is mirrored,
+so your left hand is on the left.
 
 Sign as you normally would while it runs — it is measuring the tracker, not you.
 """
@@ -33,18 +40,77 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
+PREVIEW_WINDOW = "check_camera — is the tracker seeing your hands?"
+
+# BGR. Green reads as "tracked", red as "lost", at a glance and from across a
+# room, which is the distance you will actually be signing from.
+_OK = (90, 210, 90)
+_LOST = (60, 60, 235)
+_INK = (245, 245, 245)
+_DIM = (170, 170, 170)
+
+
+def _draw_hud(cv2, frame, *, remaining, body, left, right,
+              has_l, has_r, lost_l, lost_r) -> None:
+    """Overlay the live state on the preview frame, in place.
+
+    `frame` already carries the tracker's own skeleton and hand overlays —
+    `LandmarkCapture.read_frame` composites them — so this adds only what the
+    tracker cannot show: whether each hand is being found *right now*, the
+    running percentages, and how many times each has dropped out.
+
+    The frame is mirrored first, so it reads like a mirror and your left hand
+    is on the left. The skeleton overlay mirrors with it and stays aligned.
+    """
+    frame[:] = cv2.flip(frame, 1)
+    h, w = frame.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # Dark strip behind the text, so white stays legible over a bright room.
+    strip = frame[0:74, :].copy()
+    cv2.rectangle(strip, (0, 0), (w, 74), (20, 18, 16), -1)
+    cv2.addWeighted(strip, 0.62, frame[0:74, :], 0.38, 0, frame[0:74, :])
+
+    def hand_block(x_left: int, label: str, pct: float,
+                   present: bool, lost: int) -> None:
+        colour = _OK if present else _LOST
+        cv2.putText(frame, f"{label} {pct:4.1f}%", (x_left, 28),
+                    font, 0.62, _INK, 1, cv2.LINE_AA)
+        cv2.putText(frame, "TRACKED" if present else "LOST", (x_left, 52),
+                    font, 0.62, colour, 2, cv2.LINE_AA)
+        cv2.putText(frame, f"{lost} dropout" + ("" if lost == 1 else "s"),
+                    (x_left, 68),
+                    font, 0.42, _DIM, 1, cv2.LINE_AA)
+
+    hand_block(14, "LEFT", left, has_l, lost_l)          # mirrored: user's left
+    hand_block(w - 150, "RIGHT", right, has_r, lost_r)
+
+    cv2.putText(frame, f"body {body:4.1f}%", (w // 2 - 54, 28),
+                font, 0.56, _INK if body > 90 else _LOST, 1, cv2.LINE_AA)
+    cv2.putText(frame, f"{max(0.0, remaining):4.1f}s left", (w // 2 - 54, 52),
+                font, 0.56, _DIM, 1, cv2.LINE_AA)
+
+    # A red frame while either hand is missing: peripheral vision picks this up
+    # while you are looking at your hands rather than at the text.
+    if not (has_l and has_r):
+        cv2.rectangle(frame, (0, 0), (w - 1, h - 1), _LOST, 4)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seconds", type=float, default=15.0)
     ap.add_argument("--config", default=str(ROOT / "config" / "settings.json"))
+    ap.add_argument("--no-preview", dest="preview", action="store_false",
+                    help="do not open the camera window (headless, or SSH)")
     args = ap.parse_args()
 
     # This script exists to be run when something is already wrong, so a bare
     # ModuleNotFoundError traceback is the worst possible greeting. The usual
     # cause is the system interpreter rather than the project's venv.
     try:
+        import cv2
         from src.capture import LandmarkCapture
         from src.utils import load_config
     except ModuleNotFoundError as exc:
@@ -67,14 +133,20 @@ def main() -> None:
         raise SystemExit("could not open the camera")
 
     print(f"\nSign normally for {args.seconds:.0f} seconds...\n")
+    if args.preview:
+        print("  A preview window is open — watch WHERE in a sign the hands go")
+        print("  red. Press q to stop early.\n")
+
     frames = 0
     body_seen = left_seen = right_seen = 0
     left_runs = right_runs = 0          # how often a hand is LOST mid-stream
     prev_l = prev_r = False
+    preview = args.preview
     t0 = time.time()
+    next_tick = t0
     try:
         while time.time() - t0 < args.seconds:
-            ok, _ = cap.read_frame()
+            ok, frame = cap.read_frame()
             if not ok:
                 continue
             frames += 1
@@ -94,13 +166,51 @@ def main() -> None:
                 print(f"  {frames:5d} frames   body {body_seen/frames*100:5.1f}%"
                       f"   left {left_seen/frames*100:5.1f}%"
                       f"   right {right_seen/frames*100:5.1f}%", end="\r")
+
+            if preview and frame is not None:
+                try:
+                    _draw_hud(cv2, frame,
+                              remaining=args.seconds - (time.time() - t0),
+                              body=body_seen / frames * 100,
+                              left=left_seen / frames * 100,
+                              right=right_seen / frames * 100,
+                              has_l=has_l, has_r=has_r,
+                              lost_l=left_runs, lost_r=right_runs)
+                    cv2.imshow(PREVIEW_WINDOW, frame)
+                    if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                        break
+                    if cv2.getWindowProperty(
+                            PREVIEW_WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+                        break                      # window closed
+                except cv2.error:
+                    # No display (SSH, headless, a Wayland/GLFW refusal). The
+                    # measurement is the point; the window is a convenience,
+                    # so drop it and keep going rather than abort the run.
+                    preview = False
+                    print("\n  (no display available — continuing without the "
+                          "preview)")
+
             # The capture thread owns the camera; read_frame() hands back
             # whatever it last decoded, so polling faster than the camera just
             # samples the same frame repeatedly. Pace at ~30 Hz so the
-            # percentages are per unit TIME rather than per loop iteration.
-            time.sleep(1.0 / 30.0)
+            # percentages are per unit TIME rather than per loop iteration —
+            # drawing the preview costs milliseconds, so sleep the REMAINDER of
+            # the tick rather than a fixed interval, or the window would bias
+            # the very numbers it is there to explain.
+            next_tick += 1.0 / 30.0
+            slack = next_tick - time.time()
+            if slack > 0:
+                time.sleep(slack)
+            else:
+                next_tick = time.time()            # fell behind; resynchronise
     finally:
         cap.stop()
+        if args.preview:
+            try:
+                cv2.destroyWindow(PREVIEW_WINDOW)
+                cv2.waitKey(1)
+            except cv2.error:
+                pass
 
     if not frames:
         raise SystemExit("no frames captured")

@@ -1,7 +1,4 @@
 
-
-https://github.com/user-attachments/assets/749b0e66-d853-40d9-8376-217905f24fff
-
 # SignLink — Khmer Sign Language recognition
 
 Recognises isolated Khmer Sign Language signs from an ordinary webcam and turns
@@ -20,6 +17,10 @@ webcam ──▶ MediaPipe + RTMPose ──▶ 48 joints × 60 frames ──▶ 
 > **About the repo name.** This started as the Linux rebuild of an earlier
 > Windows-only project. The code is now cross-platform — Linux, Windows and
 > macOS all run the same pipeline, and only the install steps differ.
+
+---
+## DEMO
+https://github.com/user-attachments/assets/749b0e66-d853-40d9-8376-217905f24fff
 
 ---
 

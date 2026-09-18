@@ -24,6 +24,56 @@ https://github.com/user-attachments/assets/749b0e66-d853-40d9-8376-217905f24fff
 
 ---
 
+## 👋 Scanned the QR code on our poster?
+
+**Start here.** This is the code, the data and the full write-up behind
+*From Gesture to Text*, presented at Cambodia University of Technology and
+Science.
+
+<!-- DEMO VIDEO GOES HERE.
+     Easiest way to get an inline player: open this file on github.com, click
+     the pencil to edit, and DRAG THE .mp4 INTO THE EDITOR. GitHub uploads it
+     to its own CDN and inserts a player. A relative link to a committed .mp4
+     only renders as a download link, not a player. -->
+
+|  |  |
+|---|---|
+| **92.0%** | correct on a signer the system has **never seen** |
+| **98.3%** | on a signer it has seen before |
+| **15** | models compared under one protocol |
+| **7** | signers · 7 signs · 1,722 recordings |
+
+Every score is **leave-one-signer-out**: train on six people, test on the
+seventh, seven times over. So the headline number describes a stranger walking
+up to the camera, not one of us.
+
+**The question we set out to answer — and the answer we got:**
+
+> *Does training on a synthetic 3D mannequin improve accuracy compared with
+> real recordings alone?*
+>
+> **No. Median gain: one tenth of a point.** Five algorithms improved, four got
+> worse, and the one large gain belongs to the weakest model in the study. The
+> reason is in our own feature design: we describe a joint by the direction it
+> points and discard bone length — and length is the one thing the mannequin
+> varies.
+
+**What it cannot do yet.** Every number here is measured offline. Live
+recognition is harder — the system decides mid-sign from a sliding window,
+before the sign has finished, which costs roughly ten points. Seven signs is a
+demonstration, not a vocabulary. And everyone who recorded is a project member
+rather than a fluent Deaf signer, so nothing here is a claim about Khmer Sign
+Language as the Deaf community actually uses it.
+
+> **Why the poster says 92.0 and the table below says 93.3.** Two honest runs
+> of the same study. The poster uses `cap30`, which caps every signer at the
+> first 30 takes per sign so that nobody contributes more evidence than anyone
+> else — 1,470 of the 1,722 recordings. The table below uses all 1,722. The
+> capped run is the stricter protocol and the one in our written report, so it
+> is what we print.
+
+---
+
 ## Does it work?
 
 Yes, with an honest caveat, and the caveat is the interesting part.

@@ -871,6 +871,21 @@
           <button class="btn btn-danger" id="rec-stop" style="flex:1" disabled>
             <span class="material-symbols-rounded">stop</span> Stop</button>
         </div>
+        <div class="slider-group">
+          <div class="slider-header"><span>Live view</span></div>
+          <div class="segmented-toggle view-toggle" id="rec-view-toggle">
+            <button data-view="camera" class="active"><span class="material-symbols-rounded">videocam</span>Camera</button>
+            <button data-view="both"><span class="material-symbols-rounded">splitscreen</span>Both</button>
+            <button data-view="mannequin"><span class="material-symbols-rounded">accessibility_new</span>Model</button>
+          </div>
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header"><span>Screen recording</span><span id="vid-timer"></span></div>
+          <button class="btn" id="vid-toggle" style="width:100%">
+            <span class="material-symbols-rounded">fiber_manual_record</span> Record video</button>
+        </div>
+
         <div class="info-note" style="margin-top:16px">
           <span class="material-symbols-rounded">info</span>
           <span>Train a model first:<br><code>run_baseline.py --algo svm --lang khmer --mode both --save</code></span>
@@ -1107,7 +1122,53 @@
     /* ── recognize mode ── */
     let recModels = [];
     let recActive = false;
+    let vidRecording = false;
 
+    // Recognize has its own copy of the view switch. It posts to /api/view
+    // rather than /api/config, because /api/config is record-mode only.
+    const applyRecViewUI = () => {
+      document.querySelectorAll('#rec-view-toggle button').forEach(x => {
+        x.classList.toggle('active', x.dataset.view === currentView);
+        if (!hasOpen3d && x.dataset.view !== 'camera') x.disabled = true;
+      });
+    };
+    $('rec-view-toggle').addEventListener('click', async e => {
+      const b = e.target.closest('button'); if (!b || b.disabled) return;
+      currentView = b.dataset.view; applyRecViewUI(); applyViewUI();
+      try { await api('/api/view', 'POST', { view: currentView }); }
+      catch (err) { toast(err.message || 'could not switch view', true); }
+    });
+
+    const applyVideoUI = (seconds) => {
+      const b = $('vid-toggle');
+      b.classList.toggle('btn-danger', vidRecording);
+      b.innerHTML = vidRecording
+        ? '<span class="material-symbols-rounded">stop</span> Stop recording'
+        : '<span class="material-symbols-rounded">fiber_manual_record</span> Record video';
+      const t = Math.round(seconds || 0);
+      $('vid-timer').textContent = vidRecording
+        ? `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+        : '';
+    };
+
+    $('vid-toggle').addEventListener('click', async () => {
+      try {
+        if (!vidRecording) {
+          const r = await api('/api/video/start', 'POST', {});
+          vidRecording = true;
+          toast('Recording ' + r.name);
+        } else {
+          const r = await api('/api/video/stop', 'POST', {});
+          vidRecording = false;
+          toast(`Saved ${r.name} — ${r.seconds}s`);
+        }
+      } catch (err) {
+        toast(err.message || 'video failed', true);
+      }
+      applyVideoUI(0);
+    });
+
+    
     async function loadModels() {
       try {
         const r = await api('/api/models');
@@ -1165,6 +1226,14 @@
       recActive = !!s.active;
       $('rec-start').disabled = recActive || !$('model-select').value;
       $('rec-stop').disabled = !recActive;
+
+      // the server owns both of these — the camera window can be switched or
+      // the writer closed from elsewhere, so follow it rather than assume
+      if (s.view && s.view !== currentView) { currentView = s.view; applyRecViewUI(); }
+      const v = s.video || {};
+      vidRecording = !!v.recording;
+      applyVideoUI(v.seconds);
+
       if (!recActive) return;
 
       const p = s.prediction;

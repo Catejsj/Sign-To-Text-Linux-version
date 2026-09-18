@@ -218,7 +218,39 @@ def create_app(state: AppState) -> Flask:
 
     @app.get("/api/recognize/state")
     def api_recognize_state():
-        return jsonify(engine.recognition_snapshot())
+        snap = engine.recognition_snapshot()
+        snap["view"] = engine.view
+        snap["video"] = engine.video_snapshot()
+        return jsonify(snap)
+
+    # ── view + video (both modes) ──
+    @app.post("/api/view")
+    def api_view():
+        """Switch the native window between camera, mannequin and both.
+
+        Unlike /api/config this is not record-only: Recognize mode offers the
+        same switch, so a visitor can watch the skeleton instead of themselves.
+        """
+        view = (request.json or {}).get("view")
+        if view not in ("both", "camera", "mannequin"):
+            return jsonify(error="view must be both, camera or mannequin"), 400
+        engine.set_config(view=view)
+        return jsonify(ok=True, view=view)
+
+    @app.post("/api/video/start")
+    def api_video_start():
+        try:
+            path = engine.start_video()
+        except (RuntimeError, OSError) as e:
+            return jsonify(error=str(e)), 409
+        return jsonify(ok=True, name=path.name)
+
+    @app.post("/api/video/stop")
+    def api_video_stop():
+        info = engine.stop_video()
+        if info is None:
+            return jsonify(error="not recording"), 409
+        return jsonify(ok=True, **info)
 
     @app.post("/api/quit")
     def api_quit():

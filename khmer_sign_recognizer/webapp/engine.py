@@ -95,6 +95,13 @@ class RecorderEngine:
         self.last_prediction: dict | None = None
         self.history: list[dict] = []      # recent stable predictions
 
+        # ── screen recording (main thread writes, Flask reads) ──
+        self.writer: cv2.VideoWriter | None = None
+        self.video_path: Path | None = None
+        self.video_size: tuple[int, int] | None = None
+        self.video_started_at = 0.0
+        self.video_frames = 0
+
         # ── runtime handles (main thread only) ──
         self.capture: LandmarkCapture | None = None
         self.overlay: OverlayFont | None = None
@@ -135,6 +142,9 @@ class RecorderEngine:
         if not self.running:
             return
         self.running = False
+        # close the file first — a writer left open across a mode switch or a
+        # quit produces an .mp4 with no moov atom, which plays nowhere
+        self.stop_video()
         self._teardown_mannequins()
         if self.capture is not None:
             self.capture.stop()
@@ -283,6 +293,9 @@ class RecorderEngine:
         """One recognition frame. MAIN THREAD ONLY (drives the cv2 window)."""
         if self.capture is None:
             return
+
+        view = self._sync_view()
+
         ret, frame = self.capture.read_frame()
         if not ret or frame is None:
             cv2.waitKey(1)
@@ -315,8 +328,13 @@ class RecorderEngine:
                                          "confidence": entry["confidence"],
                                          "at": time.strftime("%H:%M:%S")})
 
+        # The prediction is drawn on the camera frame before composing, so the
+        # text stays over the camera pane rather than straddling both.
         self._draw_recognition(frame, pred)
-        cv2.imshow(CAM_WINDOW, frame)
+        out = self._compose(frame, view, pose, lh, rh)
+        self._write_video(out)
+
+        cv2.imshow(CAM_WINDOW, out)
         cv2.waitKey(1)
 
     def _draw_recognition(self, frame: np.ndarray, pred) -> None:
@@ -357,11 +375,79 @@ class RecorderEngine:
             }
 
     # ── per-frame update (main thread) ───────────────────────────────
-    def tick(self) -> None:
-        if not self.running or self.capture is None:
-            return
+    # ── screen recording ─────────────────────────────────────────────
+    def start_video(self) -> Path:
+        """Begin writing the native window to an .mp4.
 
-        # apply pending view / mannequin-count changes (o3d must run here)
+        Called from Flask, but the writer is only *used* on the main thread in
+        `_write_video`, and a half-built writer is never visible because the
+        attribute is assigned last.
+        """
+        if self.writer is not None:
+            raise RuntimeError("already recording video")
+        out_dir = ROOT / "demo_videos"
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f"signlink_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
+
+        # The frame size has to be fixed for the whole file, so it is locked in
+        # here from the current view. Switching camera/model mid-take changes
+        # the composed width, and _write_video letterboxes rather than fail.
+        w, h = self._compose_width(self.current_view), self.img_h
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"),
+                                 float(self.fps), (w, h))
+        if not writer.isOpened():
+            raise OSError("could not open the video writer (mp4v unavailable?)")
+
+        self.video_path, self.video_size = path, (w, h)
+        self.video_started_at, self.video_frames = time.time(), 0
+        self.writer = writer
+        return path
+
+    def stop_video(self) -> dict | None:
+        w = self.writer
+        if w is None:
+            return None
+        self.writer = None          # stop _write_video before releasing
+        w.release()
+        info = {"path": str(self.video_path), "name": self.video_path.name,
+                "seconds": round(time.time() - self.video_started_at, 1),
+                "frames": self.video_frames}
+        self.video_path = self.video_size = None
+        return info
+
+    def video_snapshot(self) -> dict:
+        return {
+            "recording": self.writer is not None,
+            "name": self.video_path.name if self.video_path else None,
+            "seconds": (round(time.time() - self.video_started_at, 1)
+                        if self.writer is not None else 0.0),
+        }
+
+    def _write_video(self, out: np.ndarray) -> None:
+        """Append one composed frame. MAIN THREAD ONLY."""
+        if self.writer is None or self.video_size is None:
+            return
+        w, h = self.video_size
+        if (out.shape[1], out.shape[0]) != (w, h):
+            # the view was switched mid-recording — fit the frame into the size
+            # the file was opened with instead of dropping it
+            scale = min(w / out.shape[1], h / out.shape[0])
+            small = cv2.resize(out, (int(out.shape[1] * scale),
+                                     int(out.shape[0] * scale)))
+            canvas = np.zeros((h, w, 3), dtype=out.dtype)
+            y, x = (h - small.shape[0]) // 2, (w - small.shape[1]) // 2
+            canvas[y:y + small.shape[0], x:x + small.shape[1]] = small
+            out = canvas
+        self.writer.write(out)
+        self.video_frames += 1
+
+    def _sync_view(self) -> str:
+        """Apply pending view / mannequin-count changes. MAIN THREAD ONLY —
+        Open3D must build and tear down its window on the thread that owns it.
+
+        Returns the view now in force. Shared by record and recognize so both
+        modes offer the same camera / model / both switch.
+        """
         with self.lock:
             view = self.view
             desired = self.desired_mannequin
@@ -375,6 +461,37 @@ class RecorderEngine:
                 cv2.resizeWindow(CAM_WINDOW, self._compose_width(view), self.img_h)
             except cv2.error:
                 pass
+        return view
+
+    def _compose(self, frame: np.ndarray, view: str,
+                 pose: dict, lh: dict, rh: dict) -> np.ndarray:
+        """Camera frame, mannequin pane, or both side by side.
+
+        The mannequin is driven by the live pose even when the camera pane is
+        hidden — hiding it is a display choice, not a capture one.
+        """
+        mann = None
+        if self.vis is not None and self.current_mannequin > 0:
+            if pose:
+                self._update_mannequins(pose, lh, rh)
+            self.vis.poll_events()
+            self.vis.update_renderer()
+            mann = self._mannequin_image(frame.shape[0])
+
+        show_camera = view != "mannequin"
+        if show_camera and mann is not None:
+            return np.hstack([frame, mann])
+        if show_camera:
+            return frame
+        if mann is not None:
+            return mann
+        return frame          # mannequin-only but none built yet — show camera
+
+    def tick(self) -> None:
+        if not self.running or self.capture is None:
+            return
+
+        view = self._sync_view()
 
         ret, frame = self.capture.read_frame()
         if not ret or frame is None:
@@ -385,32 +502,13 @@ class RecorderEngine:
             pose = dict(self.capture.latest_pose)
             lh = dict(self.capture.latest_left_hand)
             rh = dict(self.capture.latest_right_hand)
-        has_pose = bool(pose)
         now = time.time()
 
         self._advance_state(pose, lh, rh, now)
-
-        # render the mannequin pane (still driven by the camera pose even when
-        # the camera itself is hidden)
-        mann = None
-        if self.vis is not None and self.current_mannequin > 0:
-            if has_pose:
-                self._update_mannequins(pose, lh, rh)
-            self.vis.poll_events()
-            self.vis.update_renderer()
-            mann = self._mannequin_image(frame.shape[0])
-
-        show_camera = view != "mannequin"
-        if show_camera and mann is not None:
-            out = np.hstack([frame, mann])
-        elif show_camera:
-            out = frame
-        elif mann is not None:
-            out = mann
-        else:
-            out = frame   # mannequin-only but none built yet — show camera
+        out = self._compose(frame, view, pose, lh, rh)
         # overlay the status text last, so it is visible whichever pane shows
         self._draw_overlay(out, now)
+        self._write_video(out)
 
         cv2.imshow(CAM_WINDOW, out)
         if (cv2.waitKey(1) & 0xFF) == ord(" "):

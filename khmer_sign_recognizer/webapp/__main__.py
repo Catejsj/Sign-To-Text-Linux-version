@@ -79,8 +79,10 @@ def _supervise(state: AppState, engine: RecorderEngine) -> None:
 
             if mode == "record" or recognizing:
                 if not engine.running:
-                    # Recognize mode wants the camera but no mannequin scene.
-                    if engine.start(mannequins=(mode == "record")):
+                    # Both modes can show the mannequin now. `start` asks
+                    # _needed_mannequin, which returns 0 while the view is
+                    # "camera", so nothing is built until it is switched on.
+                    if engine.start(mannequins=True):
                         warned_no_cam = False
                     else:
                         if not warned_no_cam:

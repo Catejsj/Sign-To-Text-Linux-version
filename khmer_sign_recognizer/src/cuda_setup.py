@@ -88,13 +88,27 @@ def preload_cuda_libs() -> bool:
 def _add_nvidia_dlls_windows() -> None:
     venv_path = os.path.dirname(sys.executable)
     site_packages = os.path.join(os.path.dirname(venv_path), "Lib", "site-packages")
+    
+    paths_to_add = []
+
+    # On Windows, PyTorch's wheel puts CUDA and cuDNN DLLs directly in torch/lib
+    torch_lib = os.path.join(site_packages, "torch", "lib")
+    if os.path.exists(torch_lib):
+        paths_to_add.append(torch_lib)
+
     for sub in ("cublas", "cudnn", "cuda_runtime"):
         path = os.path.join(site_packages, "nvidia", sub, "bin")
         if os.path.exists(path):
-            try:
-                os.add_dll_directory(path)
-            except Exception:
-                pass
+            paths_to_add.append(path)
+
+    for path in paths_to_add:
+        try:
+            os.add_dll_directory(path)
+        except Exception:
+            pass
+        # Prepend to PATH so C++ LoadLibrary calls can find the DLLs
+        if path not in os.environ.get("PATH", "").split(os.pathsep):
+            os.environ["PATH"] = path + os.pathsep + os.environ.get("PATH", "")
 
 
 def assert_onnx_gpu() -> None:

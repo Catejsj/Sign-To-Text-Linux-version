@@ -19,10 +19,6 @@ webcam ──▶ MediaPipe + RTMPose ──▶ 48 joints × 60 frames ──▶ 
 > macOS all run the same pipeline, and only the install steps differ.
 
 ---
-## DEMO
-https://github.com/user-attachments/assets/749b0e66-d853-40d9-8376-217905f24fff
-
----
 
 ## 👋 Scanned the QR code on our poster?
 
@@ -30,11 +26,7 @@ https://github.com/user-attachments/assets/749b0e66-d853-40d9-8376-217905f24fff
 *From Gesture to Text*, presented at Cambodia University of Technology and
 Science.
 
-<!-- DEMO VIDEO GOES HERE.
-     Easiest way to get an inline player: open this file on github.com, click
-     the pencil to edit, and DRAG THE .mp4 INTO THE EDITOR. GitHub uploads it
-     to its own CDN and inserts a player. A relative link to a committed .mp4
-     only renders as a download link, not a player. -->
+https://github.com/user-attachments/assets/749b0e66-d853-40d9-8376-217905f24fff
 
 |  |  |
 |---|---|
@@ -140,11 +132,20 @@ pure geometry rather than a generative model. Joint angles are provably
 unchanged by the transform, so the sign survives it
 ([how it works](khmer_sign_recognizer/docs/reference/SYNTHETIC_RETARGETING.md)).
 
-Across 9 algorithms: 5 improve, 3 worsen, 1 flat — **median +1.9 points.**
-The gain is small because the normalisation already divides out body scale,
-which is most of what the retargeting varies. LDA is the one casualty,
-collapsing 71.0 → 40.8: near-duplicate rows destabilise the covariance matrix
-it has to invert.
+On the current 7-signer corpus it does **not** help. Across the same 9
+algorithms: 5 improve, 4 worsen — **median +0.1 points**, and the one large
+gain (+11.2) belongs to LDA, the weakest model in the study, which still
+finishes below almost everything else.
+
+The reason is in the representation, not the generator. Normalisation already
+divides out body scale, and the bone-direction features deliberately discard
+bone length — which is the only thing the retargeting varies. It adds examples
+rather than information.
+
+*An earlier version of this README reported median +1.9 from a smaller corpus
+and an older feature set. The figure above is from
+`algo_comparison/results_khmer_taskA_cap30/results.json` and is the one used on
+the poster and in the written report.*
 
 ---
 

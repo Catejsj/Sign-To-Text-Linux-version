@@ -83,3 +83,6 @@ rclone.conf
 .pytest_cache/
 .coverage
 htmlcov/
+
+# share_model.py output — packaged bundles for sending, not source
+share/

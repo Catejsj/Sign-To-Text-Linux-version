@@ -10,7 +10,7 @@ signer's body proportions look like anyone else's, and classifies the result.
 No motion-capture hardware, no gloves, no depth camera.
 
 ```
-webcam ──▶ MediaPipe + RTMPose ──▶ 48 joints × 60 frames ──▶ classifier ──▶ text
+webcam ──▶ MediaPipe + RTMPose ──▶ 48 joints × 30 frames ──▶ classifier ──▶ text
                                     (2 seconds of movement)
 ```
 

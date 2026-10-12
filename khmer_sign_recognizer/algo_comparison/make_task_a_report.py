@@ -606,8 +606,8 @@ para(doc, "python algo_comparison/run_task_a.py", size=10)
 para(doc, "python algo_comparison/make_task_a_report.py", size=10)
 para(doc, f"Corpus `{R['lang']}` only. {R['folds']}-fold cross-validation, "
           f"{R['epochs']} epochs for the networks, all seeds fixed. Full "
-          f"numbers in results.json beside this file; method and history in "
-          f"docs/project/PROBLEM_LOG.md.", size=10, italic=True,
+          f"numbers in results.json beside this file; method and findings in "
+          f"docs/RESULTS.md.", size=10, italic=True,
      color="595959")
 
 path = OUT / "Task_A_Report.docx"

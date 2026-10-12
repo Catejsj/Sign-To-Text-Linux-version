@@ -101,7 +101,7 @@ between the best and worst architecture shrank to about 1 point — as the corpu
 grew, the choice of model stopped mattering and the choice of *who recorded*
 started to.
 
-Full write-up: [`docs/results/`](khmer_sign_recognizer/docs/results/).
+Full write-up: [`docs/RESULTS.md`](khmer_sign_recognizer/docs/RESULTS.md).
 
 ---
 
@@ -109,28 +109,36 @@ Full write-up: [`docs/results/`](khmer_sign_recognizer/docs/results/).
 
 `khmer_var` was recorded deliberately: every sign performed 12 times across
 2 lighting conditions × 2 distances × 3 standing positions, by 4 people in
-4 different rooms. Then we trained on one condition and tested on another.
+4 different rooms. Then we removed one condition from training entirely and
+tested only on it.
 
 | trained → tested | macro-F1 |
 |---|---|
-| bright → dim | **82.0** |
-| middle/left → right | 79.3 |
-| near → far | **74.9** |
+| bright → dim | 93.4 |
+| near → far | 94.0 |
+| middle/left → right | 91.3 |
+| 3 signers → an unseen 4th | **85.1** |
 
-*Real takes only. `algo_comparison/results_khmer_var/results.json`.*
+*`algo_comparison/results_khmer_var_taskA/results.json`, current feature set.*
 
-With a *single* signer, changing the lighting was catastrophic. With four
-people in four rooms it costs a couple of points. **Recruiting more signers
-fixed the problem that tighter lighting control was supposed to fix** — and
-camera distance, not light, is now the expensive variable.
+**Condition shift costs 1 to 3 points. A new person costs nine.** No condition
+was reliably better either: dim beat bright and far beat near, both within
+noise. **Recruiting more signers fixed the problem that tighter condition
+control was supposed to fix**, which is why the main corpus was recorded
+freestyle.
 
-### Synthetic data helps, a little
+*An older run with the previous feature set reported 82.0 / 74.9 / 79.3 for the
+first three rows, and concluded that distance was the expensive variable. Under
+the current features near→far is the best of the three, so that conclusion no
+longer holds.*
+
+### Synthetic data does not help
 
 We generate extra training signers by rebuilding each recorded take on
 differently-proportioned bodies — the same motion on a different skeleton,
 pure geometry rather than a generative model. Joint angles are provably
 unchanged by the transform, so the sign survives it
-([how it works](khmer_sign_recognizer/docs/reference/SYNTHETIC_RETARGETING.md)).
+([details](khmer_sign_recognizer/docs/RESULTS.md#the-synthetic-mannequin)).
 
 On the current 7-signer corpus it does **not** help. Across the same 9
 algorithms: 5 improve, 4 worsen — **median +0.1 points**, and the one large
@@ -147,6 +155,12 @@ and an older feature set. The figure above is from
 `algo_comparison/results_khmer_taskA_cap30/results.json` and is the one used on
 the poster and in the written report.*
 
+*One caveat on that experiment: it was scored with five-fold cross-validation,
+where a test fold can contain people also seen in training, not with
+leave-one-signer-out like the headline. The split is leak-free, but the claim
+it supports is "did not help under cross-validation". Re-running it per signer
+is the next experiment.*
+
 ---
 
 ## Getting started
@@ -158,25 +172,19 @@ git clone https://github.com/Catejsj/Sign-To-Text-Linux-version.git
 cd Sign-To-Text-Linux-version/khmer_sign_recognizer
 ```
 
-Then follow the setup guide for your machine:
+There are three documents, and that is all of them:
 
-- **Linux** → [`docs/setup/LINUX_REBUILD.md`](khmer_sign_recognizer/docs/setup/LINUX_REBUILD.md)
-- **Windows** → [`docs/setup/SETUP_WINDOWS.md`](khmer_sign_recognizer/docs/setup/SETUP_WINDOWS.md)
-- **macOS** → [`docs/setup/SETUP_MACOS.md`](khmer_sign_recognizer/docs/setup/SETUP_MACOS.md)
+| | |
+|---|---|
+| [`docs/SETUP.md`](khmer_sign_recognizer/docs/SETUP.md) | install on Linux, Windows or macOS |
+| [`docs/USAGE.md`](khmer_sign_recognizer/docs/USAGE.md) | record, share, train, evaluate, recognize |
+| [`docs/RESULTS.md`](khmer_sign_recognizer/docs/RESULTS.md) | every number, what it means, and what did not work |
 
 Once installed, one command gets you recording:
 
 ```bash
 ./run_web.sh
 ```
-
-Continuing the work? [`docs/project/STATE.md`](khmer_sign_recognizer/docs/project/STATE.md)
-is one page covering where everything stands.
-
-Joining the team? Start at
-[`docs/guides/TEAM_ONBOARDING.md`](khmer_sign_recognizer/docs/guides/TEAM_ONBOARDING.md).
-Every other document is indexed in
-[`docs/README.md`](khmer_sign_recognizer/docs/README.md).
 
 ---
 
@@ -186,13 +194,12 @@ Every other document is indexed in
 Sign-To-Text-Linux-version/
 └── khmer_sign_recognizer/          the project
     ├── run_web.sh                  ← start here: the control panel
-    ├── src/                        capture, normalisation, models
-    ├── scripts/                    recording, import, synthetic, training
     ├── webapp/                     the control panel (record + recognize)
-    ├── algo_comparison/            experiment drivers and reports
+    ├── src/                        capture, normalisation, features, models
+    ├── scripts/                    record, check, share, import, synthetic, train
+    ├── algo_comparison/            the 15-model comparison and its report
     ├── custom_algos/               drop a file here to add an algorithm
-    ├── signlang_image_lab/         separate image-based side experiment
-    └── docs/                       setup, guides, reference, results
+    └── docs/                       setup, usage, results
 ```
 
 Recorded takes, trained weights and the virtual environment are **not** in
@@ -204,7 +211,11 @@ what each sign is called.
 
 ## Data and privacy
 
-Recordings are stored as **skeleton coordinates only** — arrays of joint
-positions. No video or images of anyone are kept, committed, or uploaded, and
-a landmark file cannot be turned back into a picture of the person who
-recorded it.
+By default, recordings are stored as **skeleton coordinates only** — arrays of
+joint positions. A landmark file cannot be turned back into a picture of the
+person who recorded it, and every result above comes from landmark data.
+
+The recorder can also save **video and still frames** for multimodal
+experiments, but only when switched on per session. Those files contain faces,
+stay on the recording machine under `data/media/`, and are never committed to
+git. Anyone recorded on video needs to have agreed to video specifically.

@@ -86,3 +86,10 @@ htmlcov/
 
 # share_model.py output — packaged bundles for sending, not source
 share/
+
+# ── Generated reports. run_task_a.py + make_task_a_report.py rebuild them from
+#    results.json, which is itself local; a stale copy in git only misleads. ──
+*.docx
+
+# ── Poster and slide figure scripts: presentation work, kept locally ──
+poster_figs/

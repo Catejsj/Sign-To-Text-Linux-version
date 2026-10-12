@@ -122,7 +122,7 @@ def main() -> None:
                 f"  or activate the environment first:\n"
                 f"      source venv/bin/activate\n"
                 if venv.exists() else
-                "\n  No venv found — see docs/setup/ for your platform.\n")
+                "\n  No venv found — see docs/SETUP.md for your platform.\n")
         raise SystemExit(
             f"\n  {exc.name!r} is not installed in this Python "
             f"({sys.executable}).{hint}")
@@ -302,7 +302,7 @@ def main() -> None:
         print("       MediaPipe is CPU-bound, halving the capture rate).")
         print("\n  Note: image enhancement was already built for this and")
         print("  REMOVED — it reached ~57% and that was still not enough")
-        print("  (PROBLEM_LOG D4). Light is the fix, not code.")
+        print("  Light is the fix, not code.")
 
     if max(left_runs, right_runs) > elapsed:      # more than ~1 loss/second
         print(f"\n  Hands are FLICKERING in and out ({left_runs}/{right_runs} "

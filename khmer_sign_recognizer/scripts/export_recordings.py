@@ -57,8 +57,7 @@ def main() -> None:
                          "They regenerate from the real takes in one command, "
                          "and shipping them invites a second generation run on "
                          "top of the first, which is exactly the mistake that "
-                         "silently leaked test data into training once before "
-                         "(docs/project/PROBLEM_LOG.md C2).")
+                         "silently leaked test data into training once before.")
     args = ap.parse_args()
 
     data_root = Path(args.data)

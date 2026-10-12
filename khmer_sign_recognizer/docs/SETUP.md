@@ -147,8 +147,7 @@ A control panel opens at **http://127.0.0.1:8000**. The camera and 3D mannequin
 open in a **separate desktop window**, not in the browser. The browser page is
 controls only.
 
-Before recording seriously, run the camera check once in the room you will
-use. See [USAGE.md](USAGE.md#check-the-camera-first).
+Next: [USAGE.md](USAGE.md) for recording, training and evaluation.
 
 ---
 

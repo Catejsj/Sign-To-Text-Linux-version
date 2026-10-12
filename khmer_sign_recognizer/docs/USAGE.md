@@ -1,7 +1,7 @@
 # Usage
 
-Every command the project uses, in the order you would use them. Run them from
-inside `khmer_sign_recognizer/` with the virtual environment active:
+Record, train, evaluate, recognize and share. Run everything from inside
+`khmer_sign_recognizer/` with the virtual environment active:
 
 ```bash
 cd khmer_sign_recognizer
@@ -35,8 +35,12 @@ person if you cannot tell people apart.
 | **Capture** | what each take saves. See [Recording modes](#recording-modes) |
 | Live view | camera, mannequin, or both, in the desktop window |
 | Mannequins | how many 3D figures to show. Display only |
-| Synthetic per take | also generate N synthetic body-variants of each take. Landmarks only |
+| Synthetic per take | also save N synthetic body-variants of each take. Landmarks only. The corpus uses **6** |
 | Duration | seconds per take |
+
+**Light the hands, not the room.** The tracker loses fast-moving hands to motion
+blur long before it loses the body, so a take can look fine on screen and still
+be missing a hand in many frames. More light on the hands is the fix.
 
 ### Recording modes
 
@@ -52,93 +56,52 @@ none at all.
 **Landmarks only is the default** because every existing recording, result and
 privacy statement in this project assumes it.
 
-Four things about video and frames worth knowing:
-
-- **They are the raw camera image, with nothing drawn on it.** The window shows
-  the skeleton over your hands, but that drawing is not saved. A model trained
-  on frames with the skeleton painted on would learn to read the drawing, and
-  the image stream would just be the landmark stream again.
-- **A take's files share one number across every modality.** A take recorded
-  with landmarks and video saves `ann__real__clean__0004.npy` and
-  `ann__real__0004.mp4`, so they join on (signer, label, take). A take recorded
-  **without** landmarks is named `ann__mediaonly__0000.mp4` instead, so it never
-  takes a landmark number. That matters: synthetic copies find their parent
-  take by number, and a gap in the numbering would attach them to the wrong one.
+- **Video and frames are the raw camera image, with nothing drawn on it.** The
+  window shows the skeleton over your hands, but that drawing is not saved. A
+  model trained on frames with the skeleton painted on would learn to read the
+  drawing, and the image stream would just be the landmark stream again.
+- **A take's files share one number across every modality.** Landmarks and
+  video from one take are `ann__real__clean__0004.npy` and `ann__real__0004.mp4`,
+  so they join on (signer, label, take). A take recorded **without** landmarks
+  is named `ann__mediaonly__0000.mp4` and never uses a landmark number, because
+  synthetic copies find their parent take by number.
 - **Each take also gets a `.json` sidecar** with the frame count, the frame rate
-  actually achieved, and, for every camera frame, its timestamp and whether a
-  body pose was found. Landmark frame *i* is the *i*-th frame where pose is
-  true, which is how you line up pixels with joints.
+  actually achieved, and for every camera frame its timestamp and whether a body
+  pose was found. Landmark frame *i* is the *i*-th frame where pose is true.
 - **Privacy changes.** Video and frames keep faces. They are never committed to
-  git (`data/`, `*.mp4` and `*.jpg` are all ignored), but anyone recorded on
-  video needs to have agreed to video specifically, not just to landmarks.
+  git, but anyone recorded on video must have agreed to video specifically.
 
-> ⚠️ **Pooling video across people is not supported yet.** `export_recordings`,
-> `import_takes` and `verify_pool` only know about `data/sequences_v2/`. Worse,
-> `import_takes` renumbers incoming takes onto the end of the pool, so a
-> teammate's video would no longer match their landmark take number after
-> import. Recording video on one machine works end to end; teaching the import
-> to carry `data/media/` along with the renumbering is the next step before a
-> multi-person video round.
-
-### Check the camera first
-
-```bash
-python scripts/check_camera.py --seconds 20     # --no-preview over SSH
-```
-
-Sign normally while it runs. It reports how often the tracker finds each hand.
-**Run this in the actual room before recording or demoing.** In one measured
-room, hands were found in 42% of frames while signing against 92.6% while held
-still, with the body at 99.7% throughout. That is motion blur on fast hands,
-not darkness, and the fix is more light on the hands, not a software filter.
+> ⚠️ **Pooling video across people is not supported.** `import_takes` only knows
+> about `data/sequences_v2/`, and it renumbers incoming takes, so a teammate's
+> video would stop matching their landmark take after import. Recording video on
+> one machine works end to end.
 
 ---
 
-## Before sharing your recordings
+## Pool everyone's recordings
 
-Two checks that catch mistakes which never raise an error. The model just
-quietly learns the wrong thing.
-
-```bash
-# does your labels.json agree with the team's?
-python scripts/check_labels.py data/sequences_v2/khmer/labels.json
-
-# duplicate signer tags, missing sidecars, wrong shapes, orphaned synthetic
-python scripts/verify_pool.py --lang khmer --conditions
-```
-
-## Share and pool recordings
-
-**Export** just your own takes:
-
-```bash
-python scripts/export_recordings.py --signer YOURTAG --lang khmer
-```
-
-That writes `exports/YOURTAG__khmer/`. Upload the whole folder to the shared
-Drive, inside a folder with your name:
+Each person uploads their language folder to the shared Drive, inside a folder
+with their own name:
 
 ```
 SignLink/
 ├── TaskB/
-│   ├── ann/sl_001/…        ✅ paste the sign FOLDERS
+│   ├── ann/sl_001/…        ✅ the sign FOLDERS, as they are on disk
 │   └── dara/…
-└── data/sequences_v2/      ← do NOT put uploads in here
 ```
 
-> **Paste the `sl_001` … `sl_007` folders, never the files inside them.** Every
+> **Copy the `sl_001` … `sl_007` folders, never the files inside them.** Every
 > sign folder contains the same filenames, so pasting their contents into one
 > place makes each sign overwrite the last. Tested: 12 files in, 6 survived,
-> 6 of 7 signs gone. That loss happens in the file manager, before any script
-> runs, so nothing can recover it.
+> 6 of 7 signs gone. That happens in the file manager, before any script runs,
+> so nothing can recover it.
 
-**Your Drive folder name becomes your signer identity**, so two people who both
-left the tag as `me` still separate correctly.
+**The Drive folder name becomes that person's signer identity**, so two people
+who both left the tag as `me` still separate correctly.
 
-**Import** everyone's uploads. Any nesting, a Drive `.zip`, or a re-upload of
-the same person all work. Incoming takes are renumbered onto the end of what is
-there and nothing is overwritten; identical takes are detected by content and
-skipped.
+Then import. Any nesting, a Drive `.zip`, or the same person twice all work.
+Incoming takes are renumbered onto the end of what is already there and nothing
+is overwritten; takes already present are detected by content and skipped.
 
 ```bash
 python scripts/import_takes.py ~/Downloads/TaskB --dry-run    # look first
@@ -146,145 +109,78 @@ python scripts/import_takes.py ~/Downloads/TaskB              # then import
 python scripts/import_takes.py ~/Downloads/whatever --lang khmer
 ```
 
-Optional Drive sync through `rclone` (one-time `rclone config` needed, remote
-named `ksldrive`):
+### Fix how a sign is displayed
 
-```bash
-python scripts/drive_sync.py push-data      # copies, never deletes
-python scripts/drive_sync.py pull-data
-```
+Edit its text in `data/sequences_v2/<lang>/labels.json`. The slug (`sl_001`) is
+what models predict; the text is only what is shown. Saved models carry their
+own copy of the text, so retrain them (or patch the bundle) to match.
 
 ---
 
-## Synthetic data
-
-Rebuilds each real take on differently proportioned bodies: four bone scales per
-body (shoulder width, upper arm, forearm, hand), each from 0.8 to 1.2. Landmark
-takes only.
+## Train a model
 
 ```bash
-python scripts/generate_synthetic.py --language khmer --per-take 6 --clean
-python scripts/verify_pool.py --lang khmer          # check the ratio after
+python -m src.v2.train --lang khmer --model tcn --save
 ```
 
-> **Always pass `--clean`.** Without it a second run *adds* another set instead
-> of replacing it, the synthetic-to-real ratio stops being a whole number, and
-> take-aware splitting attaches copies to the wrong parent. That leaks test data
-> into training and silently inflates every score. It has happened here once.
-
-Synthetic is not exported on purpose: it regenerates in seconds, so shipping it
-only makes uploads seven times bigger.
-
-`--method ik` is an alternative generator that keeps the hand at the same
-body-relative location. It exists but has not been compared with the default.
-
-## Fix a wrong label
-
-Renames a label and rewrites the label inside every recording's sidecar. Signer
-tags are kept, nothing is deleted.
-
-```bash
-python scripts/relabel.py --lang khmer --rename sl_001:sl_002
-```
-
-To fix only how a sign is *displayed* (a spelling), edit its text in
-`data/sequences_v2/<lang>/labels.json`. Saved models carry their own copy of the
-text, so retrain or patch them to match.
-
----
-
-## Train one model
-
-```bash
-python scripts/run_baseline.py --list                       # what is available
-python scripts/run_baseline.py --algo rf --lang khmer --mode real
-python scripts/run_baseline.py --algo rf --lang khmer --mode both --holdout ann
-python scripts/run_baseline.py --algo rf --lang khmer --mode both --save
-```
+That writes `models/recognizers/khmer__tcn.joblib`, which Recognize mode loads.
+One file per language and model, so a second model adds a file and the same pair
+overwrites it.
 
 | flag | meaning |
 |---|---|
-| `--mode real` / `both` | real takes only, or real plus synthetic. Evaluation is always real |
-| `--holdout NAME` | leave one signer out: train without them, test only on them |
-| `--split-random 0.2` | hold out a fraction of takes instead, when there is one signer |
-| `--save` | write `models/recognizers/<lang>__<algo>.joblib` for Recognize mode |
+| `--lang` | **always pass it.** Left off, it trains on every language folder mixed together |
+| `--model` | `tcn` (what we ship), `gru`, `lstm`, `transformer`, `bigru`, `bilstm` |
+| `--holdout NAME` | validate on one signer the model never trains on |
+| `--epochs` | default 100 |
+| `--device` | `cuda` (default) or `cpu` |
 
-> **A saved model has no held-out score.** `--save` retrains on every take,
-> including the evaluation split, because a shipped model should use all the
-> data. The accuracy printed during the run belongs to the model *before* that
-> retrain. Never quote it as the shipped model's accuracy. And
-> `--holdout ann --save` produces a model that **has** seen ann.
+**Only `tcn`, `gru`, `lstm` and `transformer` suit live use.** `bigru` and `bilstm`
+read the clip backwards as well as forwards, so they need the sign to be
+finished before they can answer.
 
-For anything you will report, run without `--save`.
+> **The accuracy printed and stored with a model is not a benchmark.** It is
+> the validation score used to pick the best epoch, on a random 15% of takes
+> that usually includes the same people as training. The honest number comes
+> from the evaluation below.
 
-## Run the full comparison
+## Evaluate
 
-Fifteen models (nine classical, six neural), each scored on the same signer and
-on an unseen signer, plus the integrity audit.
+The full comparison: fifteen models (nine classical, six neural), each scored on
+a signer it has seen and on one it has never seen, plus the integrity audit
+(duplicate checks, shuffled labels, a signer-identity probe).
 
 ```bash
 # the run to quote: every signer capped at 30 takes per sign
 python algo_comparison/run_task_a.py --lang khmer --grid 30 --no-conditions --cap-per-sign 30 --tag cap30
-python algo_comparison/make_task_a_report.py --lang khmer --tag cap30 --title "Khmer Sign Language Recognition"
 
-# the variation grid, with held-out-condition tests
+# the variation grid, which also tests held-out lighting, distance and position
 python algo_comparison/run_task_a.py --lang khmer_var
+
+# classical models only, about a minute
+python algo_comparison/run_task_a.py --lang khmer --grid 30 --no-conditions --quick
 ```
 
 | flag | meaning |
 |---|---|
-| `--quick` | classical models only, about a minute |
-| `--charts-only` | redraw charts from the existing `results.json` |
 | `--cap-per-sign N` | at most N takes per signer per sign, so an uneven corpus reports one protocol |
 | `--no-conditions` | the corpus has no lighting/distance grid |
+| `--quick` | classical models only |
+| `--charts-only` | redraw the charts from the existing `results.json` |
 | `--tag NAME` | suffix the output folder so two runs coexist |
 | `--folds` / `--epochs` | defaults 5 and 60 |
 
 Output lands in `algo_comparison/results_<lang>_taskA[_tag]/`: `results.json`
-with every number, the charts, and the `.docx` report. The full run takes about
-6 minutes on a GPU. Every seed is fixed, so the same data gives the same numbers.
-What the numbers mean: [RESULTS.md](RESULTS.md).
+with every number, and the charts. The full run takes about 6 minutes on a GPU.
+Every seed is fixed, so the same data gives the same numbers. What they mean:
+[RESULTS.md](RESULTS.md).
 
----
+**Read the unseen-signer column.** The same features identify *who* is signing
+at 98%, so a same-signer score partly measures recognising the person.
 
-## Recognize live
+### Add your own algorithm
 
-Train with `--save`, then `./run_web.sh`, switch the panel to **Recognize**, pick
-the model, and sign.
-
-Mid-sign guesses show as muted **"Reading…"**; only the answer committed when
-you stop moving shows as **"Recognized"**. The mid-sign guess comes from a
-partial sign and is roughly 11 points worse, so sign, then pause fully.
-
-If live is much worse than expected, run `check_camera.py` before suspecting the
-model.
-
-## Look at saved takes in 3D
-
-Plays recordings back on the mannequin, no camera needed. The quickest check that
-an import actually looks like the sign.
-
-```bash
-python scripts/mannequin_local.py --playback data/sequences_v2/khmer --count 5 --fps 8
-python scripts/mannequin_local.py --playback data/sequences_v2/khmer --view noisy
-```
-
-## Send a trained model to someone
-
-```bash
-python scripts/share_model.py khmer tcn
-python scripts/share_model.py --list
-```
-
-Writes `share/khmer__tcn.zip` with the bundle, a README and a `check_model.py`
-the receiver runs first. They need this repository, not just the file. The
-accuracy stored inside a bundle is measured on its own training data and is not
-a benchmark; the honest number is in [RESULTS.md](RESULTS.md).
-
-## Add your own algorithm
-
-Drop a file in `custom_algos/`. You never edit shared code, so nobody's addition
-collides with anyone else's.
+Drop a file in `custom_algos/`. Nobody edits shared code, so nobody collides.
 
 ```python
 # custom_algos/ridge.py
@@ -296,11 +192,42 @@ def make_ridge():
 ALGORITHMS = {"ridge": ("Ridge Classifier", make_ridge)}
 ```
 
-It then appears in `run_baseline.py --list` and joins `run_task_a.py`. Return
-the model, do not fit it; features are already standardised, so do not add a
-scaler; pass `random_state=0` wherever accepted. A broken file never blocks the
-built-ins. `custom_algos/bagging.py` is a working example and is one of the nine
-models in the comparison.
+The next `run_task_a.py` run includes it. Return the model, do not fit it;
+features are already standardised, so do not add a scaler; pass
+`random_state=0` wherever accepted. `custom_algos/bagging.py` is a working
+example and one of the nine compared models.
+
+---
+
+## Recognize live
+
+`./run_web.sh`, switch the panel to **Recognize**, pick a trained model, sign.
+
+Mid-sign guesses show as muted **"Reading…"**; only the answer committed when
+you stop moving shows as **"Recognized"**. The mid-sign guess comes from a
+partial sign and is roughly 11 points worse, so sign, then pause fully. If live
+is much worse than expected, look at the lighting on your hands before
+suspecting the model.
+
+## Share a trained model
+
+```bash
+python scripts/share_model.py khmer tcn
+python scripts/share_model.py --list
+```
+
+Writes `share/khmer__tcn.zip` with the model, a README and a `check_model.py`
+the receiver runs first. They need this repository, not just the file. Dropped
+into `models/recognizers/`, it appears in Recognize mode without a restart.
+
+## Look at saved takes in 3D
+
+Plays recordings back on the mannequin, no camera needed. The quickest check
+that an import actually looks like the sign.
+
+```bash
+python scripts/mannequin_local.py --playback data/sequences_v2/khmer --count 5 --fps 8
+```
 
 ---
 
@@ -316,10 +243,12 @@ webapp/            the control panel: record, recognize, settings
   static/index.html  the whole UI, no build step
 src/               camera capture, GPU setup
 src/v2/            normalisation, features, models, training, recognizer
-scripts/           record, check, share, import, synthetic, train
-algo_comparison/   the 15-model comparison and its report
+scripts/           record_session + mannequin_local (used by the web app),
+                   import_takes, share_model
+algo_comparison/   run_task_a.py, the 15-model evaluation
 custom_algos/      drop-in algorithms
 config/settings.json   camera and capture settings
+fonts/             the Khmer font the camera window draws labels with
 ```
 
 **Data contract.** A landmark take is two files, the same movement in two views:
@@ -331,9 +260,8 @@ data/sequences_v2/<lang>/<label>/<signer>__<real|synthetic>__<clean|noisy>__<NNN
 Each `.npy` is `(frames, 48, 3)` float32 with a `.json` sidecar (label, signer,
 source, view, fps). 48 joints = 6 upper body + 21 left hand + 21 right hand.
 *clean* is centred and scaled on the shoulders and rotated level; *noisy* is raw
-image space. `src/v2/schema.py` is the single source of truth; change shapes or
-naming there and nowhere else. A take's take-id is `(signer, label, NNNN)`, and
-every split in the project groups on it.
+image space. `src/v2/schema.py` is the single source of truth. A take's id is
+`(signer, label, NNNN)`, and every split in the project groups on it.
 
 **Threading contract.** The browser is controls only. Flask runs in a daemon
 thread and only flips shared state; **every OpenCV and Open3D call happens on
@@ -345,8 +273,7 @@ driven from a worker thread.
 About 25 classes are generated at runtime by `loadLabels()`, so a missing CSS
 rule means unstyled output. Engine states are exactly `IDLE`, `COUNTDOWN`,
 `RECORDING`, `RECOGNIZING`, and the badge class is built from them.
-**Screenshot the page in light and dark mode after any CSS change**; a
-dark-mode contrast bug shipped here twice and was invisible in the source.
+**Screenshot the page in light and dark mode after any CSS change.**
 
 ---
 
@@ -354,11 +281,11 @@ dark-mode contrast bug shipped here twice and was invisible in the source.
 
 | symptom | cause and fix |
 |---|---|
-| live recognition far worse than the reported scores | run `check_camera.py`. It is almost always hand tracking, not the model |
+| live recognition far worse than the reported scores | almost always hand tracking: more light on the hands, keep shoulders and hands in frame |
 | the answer flickers while signing | that is the mid-sign window. Wait for "Recognized" |
 | a teammate's takes do not appear after import | they uploaded files instead of sign folders. Re-run with `--dry-run` to see what was found |
-| scores jumped suspiciously | check the synthetic ratio with `verify_pool.py`. A `generate_synthetic.py` run without `--clean` is the usual cause |
-| a take was "discarded" | fewer than 5 frames had a body pose (or, without landmarks, fewer than 5 camera frames). Step back so shoulders and hands are in frame |
+| a model trained on a mix of languages | `--lang` was left off `src.v2.train` |
+| a take was "discarded" | fewer than 5 frames had a body pose (without landmarks, fewer than 5 camera frames). Step back so shoulders and hands are in frame |
 | the Capture switch will not turn off the last mode | intended. A take must save something |
 | `run_web.sh: Permission denied` | `chmod +x run_web.sh` |
-| GPU not used / everything slow | see the onnxruntime repair in [SETUP.md](SETUP.md) |
+| GPU not used, everything slow | see the onnxruntime repair in [SETUP.md](SETUP.md) |

@@ -13,7 +13,6 @@ Everything is measured on `khmer_var` only — 337 real takes of 7 signs by 4
 signers on a deliberate 12-cell grid. Nothing from any other corpus.
 
     python algo_comparison/run_task_a.py                # compute + charts
-    python algo_comparison/make_task_a_report.py        # write the .docx
 
 Splitting is take-aware throughout: a take's clean view, noisy view and every
 synthetic copy stay on one side, and evaluation is always on real takes.

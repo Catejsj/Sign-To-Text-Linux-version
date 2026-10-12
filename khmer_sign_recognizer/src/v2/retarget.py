@@ -5,8 +5,8 @@ recorded (60, 48, 3) clip and rebuilds the skeleton with different bone
 lengths — same motion (every joint angle preserved), different body.
 
 Used by:
-  - scripts/record_session.py   (auto-generates synthetic takes on save)
-  - scripts/generate_synthetic.py  (batch-generates from existing recordings)
+  - webapp/engine.py   (generates synthetic takes on save, per the
+    "Synthetic per take" slider)
 """
 from __future__ import annotations
 

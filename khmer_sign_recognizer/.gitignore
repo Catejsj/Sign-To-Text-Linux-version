@@ -27,7 +27,7 @@ data/
 # hand — after that it is tracked and this rule no longer applies to it:
 #     git add -f data/sequences_v2/<lang>/labels.json
 
-# ── Per-person export folders, built by scripts/export_recordings.py.
+# ── Per-person export folders (older recordings were shared this way).
 #    They are a copy of data/ shaped for upload — regenerable, and big. ──
 exports/
 
@@ -87,7 +87,7 @@ htmlcov/
 # share_model.py output — packaged bundles for sending, not source
 share/
 
-# ── Generated reports. run_task_a.py + make_task_a_report.py rebuild them from
+# ── Generated .docx reports. They are rebuilt from
 #    results.json, which is itself local; a stale copy in git only misleads. ──
 *.docx
 

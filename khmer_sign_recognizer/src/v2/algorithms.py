@@ -1,4 +1,5 @@
-"""The algorithms `scripts/run_baseline.py` can train, and how to add your own.
+"""The classical algorithms `algo_comparison/run_task_a.py` compares, and how to
+add your own.
 
 ADDING YOUR OWN — you do NOT need to edit this file
 ---------------------------------------------------
@@ -14,10 +15,9 @@ Make a file in `custom_algos/` named anything you like, e.g.
         "ridge": ("Ridge Classifier", make_ridge),
     }
 
-That is the whole thing. It is picked up automatically:
+That is the whole thing. The next comparison run picks it up automatically:
 
-    python scripts/run_baseline.py --list
-    python scripts/run_baseline.py --algo ridge --lang khmer_var
+    python algo_comparison/run_task_a.py --lang khmer --quick
 
 Because everyone works in their own file, nobody's addition collides with
 anyone else's when the folder is shared.

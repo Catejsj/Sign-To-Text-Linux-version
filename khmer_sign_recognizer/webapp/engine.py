@@ -43,6 +43,15 @@ from scripts.record_session import (                                   # noqa: E
     OverlayFont, COUNTDOWN_S, MAX_RECORD_S, MANNEQUIN_W, MANNEQUIN_H,
 )
 from webapp import library                                             # noqa: E402
+from webapp.media import (                                             # noqa: E402
+    KIND_MEDIA_ONLY, KIND_WITH_LANDMARKS, MediaTake, next_media_only_variant,
+)
+
+# What a take can capture. Any combination is allowed except none at all.
+# Landmarks-only is the default because it is what every existing recording,
+# result and privacy statement in this project assumes.
+CAPTURE_MODES = ("landmarks", "video", "frames")
+DEFAULT_MODES = {"landmarks": True, "video": False, "frames": False}
 
 try:
     import open3d as o3d                                               # noqa: E402
@@ -76,6 +85,8 @@ class RecorderEngine:
         self.desired_mannequin = 1 if HAS_OPEN3D else 0
         # which panes the native window shows: "both" | "camera" | "mannequin"
         self.view = "both"
+        # what each take saves: landmarks, a video, still frames, or a mix
+        self.capture_modes = dict(DEFAULT_MODES)
 
         # ── recording state (owned by tick / main thread) ──
         self.state = "IDLE"
@@ -86,6 +97,8 @@ class RecorderEngine:
         self.record_start = 0.0
         self.phase_end_at: float | None = None
         self.take_buffer: list[np.ndarray] = []
+        self.media_take: MediaTake | None = None
+        self.take_modes = dict(DEFAULT_MODES)   # frozen when a take starts
         self.session_take_count = 0
         self.last_saved: str | None = None
 
@@ -159,6 +172,7 @@ class RecorderEngine:
         self.current_label = None
         self.pending_label = None
         self.take_buffer = []
+        self.media_take = None
 
     def _mann_pane_width(self) -> int:
         return int(MANNEQUIN_W * self.img_h / MANNEQUIN_H)
@@ -245,7 +259,7 @@ class RecorderEngine:
                 self.language = language
 
     def set_config(self, mannequin=None, synthetic=None, duration=None,
-                   view=None) -> None:
+                   view=None, modes=None) -> None:
         with self.lock:
             if mannequin is not None:
                 self.desired_mannequin = max(0, int(mannequin))
@@ -255,6 +269,13 @@ class RecorderEngine:
                 self.duration = float(np.clip(duration, 0.5, MAX_RECORD_S))
             if view in ("both", "camera", "mannequin"):
                 self.view = view
+            if isinstance(modes, dict):
+                new = {m: bool(modes.get(m, self.capture_modes[m]))
+                       for m in CAPTURE_MODES}
+                # A take that saves nothing is never what anyone meant.
+                if not any(new.values()):
+                    new["landmarks"] = True
+                self.capture_modes = new
 
     # ── recognition ──────────────────────────────────────────────────
     def start_recognition(self, model_name: str) -> None:
@@ -371,6 +392,7 @@ class RecorderEngine:
                     "synthetic": self.synthetic,
                     "duration": self.duration,
                     "view": self.view,
+                    "modes": dict(self.capture_modes),
                 },
             }
 
@@ -532,12 +554,25 @@ class RecorderEngine:
             self.state = "RECORDING"
             self.record_start = now
             self.take_buffer = []
+            # Freeze the modes for this take, so flipping a switch mid-take
+            # cannot produce a take that is half one thing and half another.
+            with self.lock:
+                self.take_modes = dict(self.capture_modes)
+            m = self.take_modes
+            self.media_take = (MediaTake(video=m["video"], frames=m["frames"])
+                               if m["video"] or m["frames"] else None)
             self.phase_end_at = now + duration
 
         if self.state == "RECORDING":
             if pose:
                 self.take_buffer.append(
                     frame_from_landmarks(pose, lh, rh, self.img_w, self.img_h))
+            if self.media_take is not None:
+                # RAW frame: read_frame() has the skeleton drawn on it, and a
+                # model trained on that would learn the drawing, not the hand.
+                ok, raw = self.capture.read_raw_frame()
+                if ok:
+                    self.media_take.add(raw, bool(pose), now)
             elapsed = now - self.record_start
             if stop_now or elapsed >= duration or elapsed >= MAX_RECORD_S:
                 self._finalize_take()
@@ -547,28 +582,62 @@ class RecorderEngine:
                     self.stop_now = False
 
     def _finalize_take(self) -> None:
-        if len(self.take_buffer) < 5 or not self.current_label:
-            print(f"WARN: only {len(self.take_buffer)} frames — discarded.")
+        modes = self.take_modes
+        media, self.media_take = self.media_take, None
+
+        # Landmarks need 5 frames with a body pose found. A take without
+        # landmarks needs 5 camera frames. Failing the check saves nothing,
+        # including any video, so a take is never stored half-paired.
+        if modes["landmarks"]:
+            n = len(self.take_buffer)
+        else:
+            n = len(media) if media is not None else 0
+        if n < 5 or not self.current_label:
+            print(f"WARN: only {n} frames — discarded.")
             return
+
         with self.lock:
             language, signer, synthetic = self.language, self.signer, self.synthetic
         # resolve (or create) the slug for this label text in this language
         slug = library.add_label(language, self.current_label)
-        clean = clean_clip_from_frames(self.take_buffer)
-        noisy = noisy_clip_from_frames(self.take_buffer)
-        p_clean, p_noisy = save_pair(
-            library.SEQUENCES, clean, noisy,
-            label=slug, signer_id=signer, language=language, fps=self.fps)
-        if synthetic > 0:
-            generate_variants(
-                library.SEQUENCES, noisy, label=slug, signer_id=signer,
-                language=language, fps=self.fps, n=synthetic, jitter=0.20,
-                rng=self.rng)
+        saved: list[str] = []
+
+        if modes["landmarks"]:
+            clean = clean_clip_from_frames(self.take_buffer)
+            noisy = noisy_clip_from_frames(self.take_buffer)
+            p_clean, p_noisy = save_pair(
+                library.SEQUENCES, clean, noisy,
+                label=slug, signer_id=signer, language=language, fps=self.fps)
+            saved.append(p_clean.name)
+            # The media shares this exact number, so the take joins across
+            # modalities on (signer, label, variant).
+            variant = int(p_clean.stem.split("__")[-1])
+            kind = KIND_WITH_LANDMARKS
+            if synthetic > 0:
+                generate_variants(
+                    library.SEQUENCES, noisy, label=slug, signer_id=signer,
+                    language=language, fps=self.fps, n=synthetic, jitter=0.20,
+                    rng=self.rng)
+        else:
+            # Own name space: must not consume a landmark take number, or the
+            # synthetic `variant // ratio` parent lookup breaks.
+            variant = next_media_only_variant(library.MEDIA, language, slug,
+                                              signer)
+            kind = KIND_MEDIA_ONLY
+            synthetic = 0                  # synthetic is landmark-only
+
+        if media is not None:
+            written = media.save(
+                library.MEDIA, language=language, label=slug,
+                label_text=self.current_label, signer=signer, variant=variant,
+                kind=kind, nominal_fps=self.fps)
+            saved.extend(written.values())
+
         with self.lock:
             self.session_take_count += 1
             self.last_saved = f"{self.current_label} → {slug}"
         print(f"saved [{self.session_take_count}] {self.current_label} → {slug}: "
-              f"{p_clean.name} (+{synthetic} synthetic)")
+              f"{', '.join(saved)} (+{synthetic} synthetic)")
 
     # ── drawing (ported from Recorder) ───────────────────────────────
     def _draw_overlay(self, frame: np.ndarray, now: float) -> None:

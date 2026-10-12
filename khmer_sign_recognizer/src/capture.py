@@ -478,6 +478,18 @@ class LandmarkCapture:
 
         return True, base
 
+    def read_raw_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
+        """The camera image with nothing drawn on it.
+
+        `read_frame()` adds the skeleton layers for display. Anything saved as
+        training data must come from here instead: a model trained on frames
+        with the skeleton painted on learns to read the drawing, not the hand.
+        """
+        with self.lock:
+            if self.frame is None:
+                return False, None
+            return True, self.frame.copy()
+
     # ─────────────────────────────────────────
     #  Data extraction (original working versions)
     # ─────────────────────────────────────────

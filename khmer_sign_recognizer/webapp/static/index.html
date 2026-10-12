@@ -769,6 +769,20 @@
         <div class="card-header">Configuration</div>
 
         <div class="slider-group">
+          <div class="slider-header"><span>Capture</span><span class="slider-val">any mix</span></div>
+          <div class="segmented-toggle view-toggle" id="capture-toggle">
+            <button data-mode="landmarks" class="active" aria-pressed="true"><span class="material-symbols-rounded">back_hand</span>Landmarks</button>
+            <button data-mode="video" aria-pressed="false"><span class="material-symbols-rounded">movie</span>Video</button>
+            <button data-mode="frames" aria-pressed="false"><span class="material-symbols-rounded">photo_library</span>Frames</button>
+          </div>
+        </div>
+
+        <div class="info-note" id="capture-privacy" style="display:none">
+          <span class="material-symbols-rounded">shield</span>
+          <span>Video and frames keep the raw camera image, faces included. They save to <code>data/media/</code> and are never committed to git. Record only people who agreed to video.</span>
+        </div>
+
+        <div class="slider-group">
           <div class="slider-header"><span>Live view</span></div>
           <div class="segmented-toggle view-toggle" id="view-toggle">
             <button data-view="both" class="active"><span class="material-symbols-rounded">splitscreen</span>Both</button>
@@ -782,7 +796,7 @@
           <input type="range" id="slide-mannequin" min="0" max="4" step="1" value="1">
         </div>
 
-        <div class="slider-group">
+        <div class="slider-group" id="synthetic-group">
           <div class="slider-header"><span>Synthetic per take</span><span class="slider-val tabular-nums" id="val-synthetic">0</span></div>
           <input type="range" id="slide-synthetic" min="0" max="10" step="1" value="0">
         </div>
@@ -1089,6 +1103,10 @@
 
     /* ── live config ── */
     const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
+    // What each take saves. Any combination except none. Landmarks-only is the
+    // default because every existing recording and result assumes it.
+    let captureModes = { landmarks: true, video: false, frames: false };
+
     const pushConfig = debounce(async () => {
       try {
         await api('/api/config', 'POST', {
@@ -1096,11 +1114,40 @@
           synthetic: Number($('slide-synthetic').value),
           duration: Number($('slide-duration').value),
           view: currentView,
+          modes: captureModes,
           signer: currentSigner || 'me',
           lang: currentLang,
         });
       } catch (e) { toast(e.message, true); }
     }, 200);
+
+    const applyCaptureUI = () => {
+      document.querySelectorAll('#capture-toggle button').forEach(b => {
+        const on = !!captureModes[b.dataset.mode];
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      // .info-note sets display:flex, which overrides the `hidden` attribute,
+      // so visibility has to go through style.display.
+      $('capture-privacy').style.display = (captureModes.video || captureModes.frames) ? '' : 'none';
+      // synthetic copies are generated from landmarks; without them there is nothing to copy
+      const synthOn = captureModes.landmarks;
+      $('slide-synthetic').disabled = !synthOn;
+      $('synthetic-group').style.opacity = synthOn ? '' : '.45';
+    };
+
+    $('capture-toggle').addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const next = { ...captureModes, [b.dataset.mode]: !captureModes[b.dataset.mode] };
+      if (!next.landmarks && !next.video && !next.frames) {
+        toast('Pick at least one thing to capture', true);
+        return;
+      }
+      captureModes = next;
+      applyCaptureUI();
+      pushConfig();
+    });
 
     $('slide-mannequin').addEventListener('input', e => { $('val-mannequin').textContent = e.target.value; pushConfig(); });
     $('slide-synthetic').addEventListener('input', e => { $('val-synthetic').textContent = e.target.value; pushConfig(); });
@@ -1290,6 +1337,8 @@
         $('slide-mannequin').value = c.mannequin ?? 1; $('val-mannequin').textContent = c.mannequin ?? 1;
         $('slide-synthetic').value = c.synthetic ?? 0; $('val-synthetic').textContent = c.synthetic ?? 0;
         $('slide-duration').value = c.duration ?? 3; $('val-duration').textContent = Number(c.duration ?? 3).toFixed(1);
+        if (c.modes) captureModes = { ...captureModes, ...c.modes };
+        applyCaptureUI();
         currentView = c.view || 'both';
         currentSigner = e.signer || 'me'; $('signer-input').value = currentSigner;
         if (!hasOpen3d) {

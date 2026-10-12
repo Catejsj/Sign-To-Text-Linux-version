@@ -24,6 +24,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SEQUENCES = ROOT / "data" / "sequences_v2"
+# Video and still frames, when a take records them. Kept apart from the
+# landmark pool so import, verify and training never trip over .mp4 files;
+# a take joins across the two on (signer, label, variant). See webapp/media.py.
+MEDIA = ROOT / "data" / "media"
 
 # Same rule the recorder uses for language/label slugs.
 ASCII_SAFE = re.compile(r"^[a-zA-Z0-9_\-]+$")
@@ -123,6 +127,8 @@ def delete_language(name: str) -> None:
     if not d.exists():
         raise LibraryError(f"language '{name}' does not exist")
     shutil.rmtree(d)
+    if (MEDIA / name).exists():
+        shutil.rmtree(MEDIA / name)
     _invalidate()
 
 
@@ -178,6 +184,8 @@ def delete_label(language: str, slug: str) -> None:
         _write_labels(language, labels)
     if folder.exists():
         shutil.rmtree(folder)
+    if (MEDIA / language / slug).exists():
+        shutil.rmtree(MEDIA / language / slug)
     _invalidate()
 
 
@@ -279,6 +287,11 @@ def delete_take(language: str, slug: str, signer: str, variant: int,
     if removed == 0:
         raise LibraryError(
             f"no take {signer} #{variant} ({source}) in {language}/{slug}")
+    if source == "real":
+        # its video and frames go with it, or a later take reusing this
+        # number would inherit someone else's footage
+        from webapp.media import delete_take_media
+        removed += delete_take_media(MEDIA, language, slug, signer, variant)
     _invalidate()
     return removed
 
@@ -299,6 +312,10 @@ def delete_all(language: str, slug: str | None = None) -> int:
         for f in list(d.glob("*.npy")) + list(d.glob("*.json")):
             f.unlink()
             n += 1
+        media_dir = MEDIA / language / d.name
+        if media_dir.exists():
+            n += sum(1 for _ in media_dir.iterdir())
+            shutil.rmtree(media_dir)
     _invalidate()
     return n
 

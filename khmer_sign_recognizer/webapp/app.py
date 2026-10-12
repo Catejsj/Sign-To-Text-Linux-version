@@ -148,6 +148,7 @@ def create_app(state: AppState) -> Flask:
             synthetic=data.get("synthetic"),
             duration=data.get("duration"),
             view=data.get("view"),
+            modes=data.get("modes"),
         )
         if data.get("lang"):
             engine.set_language(data["lang"])

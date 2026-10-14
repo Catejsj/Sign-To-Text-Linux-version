@@ -37,7 +37,7 @@ cd Sign-To-Text-Linux-version/khmer_sign_recognizer
 python3.11 -m venv venv                      # NOT `python -m venv`, that is 3.14
 source venv/bin/activate
 pip install --upgrade pip
-pip install torch --index-url https://download.pytorch.org/whl/cu128
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements-linux.txt
 ```
 
@@ -65,7 +65,7 @@ cd Sign-To-Text-Linux-version\khmer_sign_recognizer
 py -3.11 -m venv venv
 venv\Scripts\activate
 python -m pip install --upgrade pip
-pip install torch --index-url https://download.pytorch.org/whl/cu128
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 ```
 
@@ -129,13 +129,20 @@ A warning afterwards that `rtmlib requires onnxruntime` is harmless.
 ```bash
 python -c "import torch; print('CUDA:', torch.cuda.is_available())"
 python -c "import sys; sys.path.insert(0,'.'); from src.cuda_setup import assert_onnx_gpu; assert_onnx_gpu(); print('ONNX GPU OK')"
-python -c "import cv2, mediapipe, sklearn, open3d, rtmlib; print('imports OK')"
+python -c "import cv2, mediapipe, sklearn, open3d, rtmlib, torchvision; print('imports OK')"
 ```
 
 The middle line is the one that matters. `onnxruntime.get_available_providers()`
 lists what the build *supports*, not what can actually *load*, and ONNX Runtime
 falls back to the CPU without raising. `assert_onnx_gpu()` builds a real session
 and fails loudly if the GPU is not really in use. (On macOS, skip it.)
+
+**Already installed before torchvision was added?** Add it from the same index
+as torch, so the versions match:
+
+```bash
+pip install torchvision --index-url https://download.pytorch.org/whl/cu128
+```
 
 ## Run
 

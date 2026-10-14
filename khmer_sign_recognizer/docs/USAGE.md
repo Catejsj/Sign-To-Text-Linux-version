@@ -75,10 +75,8 @@ privacy statement in this project assumes it.
 - **Privacy changes.** Video and frames keep faces. They are never committed to
   git, but anyone recorded on video must have agreed to video specifically.
 
-> ⚠️ **Pooling video across people is not supported.** `import_takes` only knows
-> about `data/sequences_v2/`, and it renumbers incoming takes, so a teammate's
-> video would stop matching their landmark take after import. Recording video on
-> one machine works end to end.
+Video-only takes do not appear in the web app's take list, so delete them by
+hand from `data/media/`.
 
 ---
 
@@ -103,6 +101,16 @@ SignLink/
 **The Drive folder name becomes that person's signer identity**, so two people
 who both left the tag as `me` still separate correctly.
 
+**Recorded video or frames too?** Upload the matching `data/media/<lang>/`
+folder inside the same named folder, for example `Mengly/sequences_v2/khmer_mm/`
+and `Mengly/media/khmer_mm/`. Each video moves with its landmark take and gets
+the same new number, so the two stay joined after import. Use `--lang khmer_mm`.
+
+**For `khmer_mm`, pull the repository before recording** and pick `khmer_mm`
+from the language list rather than creating it: its `labels.json` is in git.
+Khmer signs are numbered in the order they are added, so typing the signs in a
+different order would give `sl_003` a different meaning on your machine.
+
 Then import. Any nesting, a Drive `.zip`, or the same person twice all work.
 Incoming takes are renumbered onto the end of what is already there and nothing
 is overwritten; takes already present are detected by content and skipped.
@@ -111,7 +119,22 @@ is overwritten; takes already present are detected by content and skipped.
 python scripts/import_takes.py ~/Downloads/TaskB --dry-run    # look first
 python scripts/import_takes.py ~/Downloads/TaskB              # then import
 python scripts/import_takes.py ~/Downloads/whatever --lang khmer
+python scripts/import_takes.py ~/Downloads/MM --lang khmer_mm --labels-from khmer_mm
 ```
+
+### Make synthetic copies after recording
+
+For takes recorded with Synthetic set to 0 (like `khmer_mm`):
+
+```bash
+python scripts/generate_synthetic.py --language khmer_mm            # 6 per take
+python scripts/generate_synthetic.py --language khmer_mm --clean    # redo, e.g. after an import
+```
+
+It refuses a folder that already has synthetic takes unless you pass `--clean`.
+Running twice without it doubles the copies and attaches them to the wrong
+takes, which leaks test takes into training. **After importing new takes into a
+folder, regenerate with `--clean`.**
 
 ### Fix how a sign is displayed
 
@@ -182,6 +205,37 @@ Every seed is fixed, so the same data gives the same numbers. What they mean:
 **Read the unseen-signer column.** The same features identify *who* is signing
 at 98%, so a same-signer score partly measures recognising the person.
 
+### Do images help? (multimodal)
+
+Three models scored on the **same** held-out `khmer_mm` takes: **A** landmarks
+only, **B** camera images only (a pretrained ResNet-18 per frame, frozen), and
+**C** both side by side. **C minus A is the gain from adding images.**
+
+```bash
+python algo_comparison/run_multimodal.py                                   # khmer_mm alone
+python algo_comparison/run_multimodal.py --extra khmer --tag extra         # + old landmarks in A and C
+python algo_comparison/run_multimodal.py --extra khmer --synthetic --tag extra_syn
+```
+
+| flag | meaning |
+|---|---|
+| `--extra khmer` | add a landmark-only folder to A and C's training. Never tested on |
+| `--synthetic` | add synthetic copies of every training take (landmarks only) |
+| `--protocol` | `auto` (default): leave-one-signer-out with 2+ people in `khmer_mm`, else 5-fold |
+| `--crop body` | images cropped to the signer instead of the full frame |
+| `--arms A,C` | run only some arms |
+
+**With one person it is a same-signer check, not a result.** Leave-one-signer-
+out needs at least two people in `khmer_mm`. When someone is held out, all of
+their data leaves training, including their takes in `--extra`. That only works
+if their signer tag is spelled the same in both folders; the script warns when
+it is not.
+
+Output: `algo_comparison/results_multimodal_khmer_mm[_tag]/results.json` with
+every fold, per-take predictions, and accuracy on takes where the tracker lost
+a hand for more than half the clip. Image features are cached in
+`data/media/_cache/`. The first run downloads ResNet-18's weights (45 MB).
+
 ### Add your own algorithm
 
 Drop a file in `custom_algos/`. Nobody edits shared code, so nobody collides.
@@ -248,8 +302,9 @@ webapp/            the control panel: record, recognize, settings
 src/               camera capture, GPU setup
 src/v2/            normalisation, features, models, training, recognizer
 scripts/           record_session + mannequin_local (used by the web app),
-                   import_takes, share_model
-algo_comparison/   run_task_a.py, the 15-model evaluation
+                   import_takes, generate_synthetic, share_model
+algo_comparison/   run_task_a.py (the 15-model evaluation),
+                   run_multimodal.py (landmarks vs images vs both)
 custom_algos/      drop-in algorithms
 config/settings.json   camera and capture settings
 fonts/             the Khmer font the camera window draws labels with

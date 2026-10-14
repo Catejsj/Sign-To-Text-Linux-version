@@ -119,6 +119,7 @@ stack-data==0.6.3
 sympy==1.14.0
 threadpoolctl==3.6.0
 torch==2.11.0+cu128
+torchvision==0.26.0+cu128
 tqdm==4.68.4
 traitlets==5.15.1
 triton==3.6.0

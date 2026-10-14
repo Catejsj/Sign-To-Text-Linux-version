@@ -33,6 +33,18 @@ recording. It is taken from, in order:
 So if everyone drops their export into TaskA/<their name>/, it just works, and
 whatever they typed into the panel is irrelevant.
 
+VIDEO AND FRAMES
+----------------
+A take recorded with video or frames has them in data/media/<lang>/<sign>/.
+Upload that folder too, anywhere inside your named folder, e.g.
+
+    Mengly/sequences_v2/khmer_mm/sl_001/...   (landmarks)
+    Mengly/media/khmer_mm/sl_001/...          (video, frames, .json)
+
+Each media take moves WITH its landmark take and is renumbered to the same
+new number, so the two still join on (signer, sign, take) after import.
+Video-only takes (`__mediaonly__`) are renumbered in their own sequence.
+
 Afterwards, ./run_web.sh and the training scripts see it as ordinary data.
 """
 from __future__ import annotations
@@ -58,6 +70,7 @@ from src.v2.schema import (                                    # noqa: E402
 )
 
 SEQUENCES = ROOT / "data" / "sequences_v2"
+MEDIA = ROOT / "data" / "media"
 SHAPE = (SEQ_LEN, NUM_JOINTS, NUM_COORDS)
 
 STEM = re.compile(
@@ -112,7 +125,8 @@ def find_label(path: Path, src: Path, labels: dict) -> str | None:
     return None
 
 
-def find_signer(path: Path, src: Path, stem_signer: str | None) -> str:
+def find_signer(path: Path, src: Path, stem_signer: str | None,
+                lang: str | None = None) -> str:
     """First folder under SRC, else whatever the filename claimed."""
     try:
         rel = path.relative_to(src)
@@ -120,7 +134,9 @@ def find_signer(path: Path, src: Path, stem_signer: str | None) -> str:
         rel = Path(path.name)
     parts = rel.parts[:-1]
     for p in parts:
-        if p in ("sequences_v2", "data") or SLUG.match(p):
+        if p in ("sequences_v2", "data", "media") or SLUG.match(p):
+            continue
+        if lang and p == lang:                  # e.g. a bare khmer_mm/ folder
             continue
         if p in FOLDER_LANG.values() or _squash(p) in FOLDER_LANG:
             continue
@@ -154,6 +170,68 @@ def next_free(dest_label: Path, signer: str, source: str) -> int:
         m = STEM.match(p.stem)
         if m:
             n = max(n, int(m["variant"]))
+    return n + 1
+
+
+def find_media(src: Path, labels: dict, signer_override: str | None,
+               lang: str) -> dict:
+    """Every media take in SRC: (label, signer, kind, old_variant) -> sidecar.
+
+    A media sidecar is told apart from a landmark one by its "kind" key.
+    """
+    out: dict = {}
+    for side in sorted(src.rglob("*.json")):
+        try:
+            d = json.loads(side.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            continue
+        if not isinstance(d, dict) or d.get("kind") not in ("real", "mediaonly"):
+            continue
+        label = d.get("label") if d.get("label") in labels else \
+            find_label(side, src, labels)
+        if not label or not isinstance(d.get("variant"), int):
+            continue
+        signer = signer_override or find_signer(
+            side, src, d.get("signer_id"), lang)
+        out[(label, signer, d["kind"], d["variant"])] = side
+    return out
+
+
+def media_hash(side: Path) -> str | None:
+    """Fingerprint of a media take: its video, else its first frame."""
+    mp4 = side.with_suffix(".mp4")
+    frames = sorted((side.parent / f"{side.stem}_frames").glob("*.jpg"))
+    f = mp4 if mp4.exists() else (frames[0] if frames else None)
+    if f is None:
+        return None
+    return hashlib.blake2b(f.read_bytes(), digest_size=16).hexdigest()
+
+
+def copy_media(side: Path, dest_label: Path, signer: str, lang: str,
+               variant: int, kind: str) -> int:
+    """Copy one media take under its new name. Returns files written."""
+    old_stem = side.stem
+    new_stem = f"{signer}__{kind}__{variant:04d}"
+    d = json.loads(side.read_text(encoding="utf-8"))
+    dest_label.mkdir(parents=True, exist_ok=True)
+    n = 0
+    files = {}
+    mp4 = side.with_suffix(".mp4")
+    if mp4.exists():
+        shutil.copyfile(mp4, dest_label / f"{new_stem}.mp4")
+        files["video"] = f"{new_stem}.mp4"
+        n += 1
+    frames = side.parent / f"{old_stem}_frames"
+    if frames.is_dir():
+        target = dest_label / f"{new_stem}_frames"
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(frames, target)
+        files["frames"] = target.name
+        n += 1
+    d.update(signer_id=signer, language=lang, variant=variant, files=files)
+    (dest_label / f"{new_stem}.json").write_text(
+        json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
     return n + 1
 
 
@@ -253,10 +331,15 @@ def main() -> None:
             old = int(m["variant"]) if m else len(takes)
 
         signer = args.signer or find_signer(
-            npy, src, side.get("signer_id") or (m["signer"] if m else None))
+            npy, src, side.get("signer_id") or (m["signer"] if m else None),
+            lang)
         takes[(label, signer, source, old)][view] = npy
 
-    if not takes:
+    media = find_media(src, labels, args.signer, lang)
+    media_used: set = set()
+    media_written = 0
+
+    if not takes and not media:
         print("Found no importable .npy files.")
         for s in skipped[:10]:
             print(f"  skipped {s}")
@@ -312,11 +395,23 @@ def main() -> None:
             if not args.allow_duplicates and all(d in seen
                                                  for d in digests.values()):
                 duplicates += 1
+                if source == "real":
+                    media_used.add((label, signer, "real", _old))
                 continue
-            pending.append((clips, digests))
+            pending.append((_old, clips, digests))
+            if source == "real":
+                # a skipped duplicate keeps its media out too; mark either way
+                media_used.add((label, signer, "real", _old))
 
-        for i, (clips, digests) in enumerate(pending):
+        for i, (old, clips, digests) in enumerate(pending):
             variant = start + i
+            side = media.get((label, signer, "real", old)) \
+                if source == "real" else None
+            if side is not None:
+                if not args.dry_run:
+                    copy_media(side, MEDIA / lang / label, signer, lang,
+                               variant, "real")
+                media_written += 1
             for view, clip in sorted(clips.items()):
                 stem = f"{signer}__{source}__{view}__{variant:04d}"
                 if not args.dry_run:
@@ -333,6 +428,36 @@ def main() -> None:
             per_signer[signer][source] += 1
             if source == "real":
                 written_grid[(signer, label)] += 1
+
+    # ---- video-only takes: their own number sequence, never a landmark one
+    from webapp.media import next_media_only_variant
+    mediaonly_written = 0
+    orphans = []
+    next_mo: dict = {}
+    mo_seen: dict = {}
+    for key, side in sorted(media.items()):
+        label, signer, kind, old = key
+        if kind == "mediaonly":
+            # no landmarks to fingerprint, so compare the video itself
+            dest_label = MEDIA / lang / label
+            if label not in mo_seen:
+                mo_seen[label] = {media_hash(x) for x in
+                                  dest_label.glob("*__mediaonly__*.json")}
+            h = media_hash(side)
+            if not args.allow_duplicates and h is not None and h in mo_seen[label]:
+                duplicates += 1
+                continue
+            mo_seen[label].add(h)
+            k = (label, signer)
+            if k not in next_mo:
+                next_mo[k] = next_media_only_variant(MEDIA, lang, label, signer)
+            if not args.dry_run:
+                copy_media(side, MEDIA / lang / label, signer, lang,
+                           next_mo[k], "mediaonly")
+            next_mo[k] += 1
+            mediaonly_written += 1
+        elif key not in media_used:
+            orphans.append(f"{side.relative_to(src)}")
 
     # ---- report
     print(f"\n{'would import' if args.dry_run else 'imported'} into "
@@ -358,6 +483,14 @@ def main() -> None:
                           sorted(per_signer[signer].items()))
         print(f"  {signer:<15} {parts}")
     print(f"  {'':<15} {written} files total")
+    if media_written or mediaonly_written:
+        print(f"  video/frames: {media_written} take(s) moved with their "
+              f"landmarks, {mediaonly_written} video-only take(s), into "
+              f"data/media/{lang}/")
+    if orphans:
+        warnings.append(
+            f"{len(orphans)} media take(s) had no matching landmark take and "
+            f"were not imported, e.g. {orphans[0]}")
     if duplicates:
         print(f"\n  skipped {duplicates} take(s) already present "
               f"(same content) — re-import is safe")

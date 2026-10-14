@@ -25,8 +25,11 @@ open3d>=0.18.0
 
 # AI/ML — for local inference (Colab has its own PyTorch)
 # Install with CUDA support:
-#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 torch
+# pretrained image network for the multimodal comparison (run_multimodal.py);
+# install it from the same index as torch so the two match
+torchvision
 
 # Classical-ML models (algo_comparison/run_task_a.py)
 scikit-learn>=1.3

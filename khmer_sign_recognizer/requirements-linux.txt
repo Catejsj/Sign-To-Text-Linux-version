@@ -35,6 +35,8 @@ open3d==0.19.0
 
 # AI/ML — local inference
 torch
+# pretrained image network for run_multimodal.py; same index as torch
+torchvision
 
 # Classical-ML models (algo_comparison/run_task_a.py)
 scikit-learn>=1.3

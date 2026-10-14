@@ -128,7 +128,30 @@ def create_app(state: AppState) -> Flask:
         label = data.get("label")
         if not label:
             return jsonify(error="label required"), 400
-        engine.queue_label(label)
+        count = int(data.get("count") or 1)
+        if count > 1:
+            try:
+                engine.start_series(label, count)
+            except RuntimeError as e:
+                return jsonify(error=str(e)), 409
+        else:
+            engine.queue_label(label)
+        return jsonify(ok=True)
+
+    @app.post("/api/series")
+    def api_series():
+        """Pause, resume or end a take series."""
+        if not _require_record():
+            return _wrong_mode()
+        action = (request.json or {}).get("action")
+        if action == "pause":
+            engine.pause_series(True)
+        elif action == "resume":
+            engine.pause_series(False)
+        elif action == "end":
+            engine.end_series()
+        else:
+            return jsonify(error="action must be pause, resume or end"), 400
         return jsonify(ok=True)
 
     @app.post("/api/stop")

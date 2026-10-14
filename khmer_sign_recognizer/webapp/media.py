@@ -28,6 +28,11 @@ Three rules this module exists to enforce:
 3. **Nothing reaches git.** Everything lands under `data/media/`, and `data/`,
    `*.mp4` and `*.jpg` are all gitignored.
 
+Only new camera frames are kept. The engine loop runs about twice as fast as
+the camera, so without the sequence-number check about half of a take's frames
+were exact copies of the one before (measured: 83 of 174 on the first real
+take, giving a false 57 fps).
+
 Frames are held as JPEG bytes in memory while recording (roughly 60 KB each,
 so even the 8-second cap at 30 fps is about 15 MB) and written once the take
 ends. That way the video plays at the frame rate actually achieved, which on a
@@ -94,22 +99,35 @@ class MediaTake:
         self.jpegs: list[bytes] = []
         self.times: list[float] = []
         self.pose: list[bool] = []
+        self.lm: list[int | None] = []
+        self.last_seq = -1
         self.size: tuple[int, int] | None = None
         self.t0 = time.time()
 
     def __len__(self) -> int:
         return len(self.jpegs)
 
-    def add(self, frame: np.ndarray, pose_present: bool, now: float) -> None:
+    def add(self, frame: np.ndarray, seq: int, lm_index: int | None,
+            now: float) -> None:
+        """Keep `frame` if it is a new camera frame.
+
+        `seq` is the camera's frame number; a repeat of the last one is
+        skipped. `lm_index` is the index of the landmark frame recorded on the
+        same tick (None if no pose was found then).
+        """
+        if seq == self.last_seq:
+            return
         ok, buf = cv2.imencode(".jpg", frame,
                                [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:
             return
         if self.size is None:
             self.size = (frame.shape[1], frame.shape[0])
+        self.last_seq = seq
         self.jpegs.append(buf.tobytes())
         self.times.append(now - self.t0)
-        self.pose.append(bool(pose_present))
+        self.pose.append(lm_index is not None)
+        self.lm.append(lm_index)
 
     def achieved_fps(self, nominal: float) -> float:
         span = self.times[-1] - self.times[0] if len(self.times) > 1 else 0.0
@@ -160,14 +178,15 @@ class MediaTake:
             "width": self.size[0] if self.size else None,
             "height": self.size[1] if self.size else None,
             "files": written,
-            # One entry per camera frame: seconds since recording began, and
-            # whether a body pose was found on it. The landmark clip was built
-            # from only the frames where pose is true, in order, so landmark
-            # frame i is the i-th true here (before resampling to the stored
-            # length). Pose runs on a background thread, so this pairing is
-            # exact in order but may be off by about one camera frame in time.
+            # One entry per saved camera frame: seconds since recording began,
+            # whether a body pose was found, and `lm`, the index of the
+            # landmark frame recorded at the same moment (null if none).
+            # Indices are into the landmark clip BEFORE it was resampled to
+            # the stored length. Pose runs on a background thread, so the
+            # pairing may be off by about one camera frame in time.
             "t": [round(t, 4) for t in self.times],
             "pose": self.pose,
+            "lm": self.lm,
         }
         (folder / f"{stem}.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")

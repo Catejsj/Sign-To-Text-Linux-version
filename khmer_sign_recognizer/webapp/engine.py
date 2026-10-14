@@ -51,6 +51,13 @@ from webapp.media import (                                             # noqa: E
 # Landmarks-only is the default because it is what every existing recording,
 # result and privacy statement in this project assumes.
 CAPTURE_MODES = ("landmarks", "video", "frames")
+
+# A series records the same sign again and again from one click. Between takes
+# the signer gets REST_S to drop their hands, then the usual countdown. After
+# MAX_MISSES discarded takes in a row (nobody in frame) the series pauses
+# itself rather than spin forever.
+REST_S = 1.5
+MAX_MISSES = 3
 DEFAULT_MODES = {"landmarks": True, "video": False, "frames": False}
 
 try:
@@ -93,6 +100,7 @@ class RecorderEngine:
         self.current_label: str | None = None
         self.pending_label: str | None = None
         self.stop_now = False
+        self.cancel_countdown = False
         self.countdown_start = 0.0
         self.record_start = 0.0
         self.phase_end_at: float | None = None
@@ -101,6 +109,14 @@ class RecorderEngine:
         self.take_modes = dict(DEFAULT_MODES)   # frozen when a take starts
         self.session_take_count = 0
         self.last_saved: str | None = None
+
+        # ── take series (one click, many takes) ──
+        self.series_label: str | None = None
+        self.series_target = 0          # takes to save; 0 = no series
+        self.series_done = 0
+        self.series_paused = False
+        self.series_misses = 0
+        self.series_next_at = 0.0
 
         # ── recognition (Recognize mode) ──
         self.recognizer: LiveRecognizer | None = None
@@ -173,6 +189,7 @@ class RecorderEngine:
         self.pending_label = None
         self.take_buffer = []
         self.media_take = None
+        self._end_series()
 
     def _mann_pane_width(self) -> int:
         return int(MANNEQUIN_W * self.img_h / MANNEQUIN_H)
@@ -241,12 +258,60 @@ class RecorderEngine:
     # ── setters (Flask thread — plain fields under lock only) ─────────
     def queue_label(self, text: str) -> None:
         with self.lock:
+            if self.series_target:      # a series owns the queue until it ends
+                return
             self.pending_label = text
 
     def stop_take(self) -> None:
         with self.lock:
             if self.state == "RECORDING":
                 self.stop_now = True
+
+    def start_series(self, text: str, count: int) -> None:
+        """Record `text` `count` times in a row from a single click."""
+        with self.lock:
+            if self.series_target or self.state != "IDLE":
+                raise RuntimeError("a take or series is already running")
+            self.series_label = text
+            self.series_target = max(1, int(count))
+            self.series_done = 0
+            self.series_paused = False
+            self.series_misses = 0
+            self.pending_label = text
+
+    def pause_series(self, paused: bool) -> None:
+        """Pause after the current take finishes, or resume. A take that is
+        already recording is never cut short by a pause."""
+        with self.lock:
+            if not self.series_target:
+                return
+            self.series_paused = bool(paused)
+            if paused:
+                # nothing recorded yet, so a countdown in progress is dropped
+                self.pending_label = None
+                if self.state == "COUNTDOWN":
+                    self.cancel_countdown = True
+            else:
+                self.series_misses = 0
+                self.series_next_at = 0.0     # resume straight into a countdown
+
+    def end_series(self) -> None:
+        """Stop the series. A countdown is cancelled; a take already recording
+        finishes and is saved, since it is a complete take."""
+        with self.lock:
+            if not self.series_target:
+                return
+            self._end_series()
+            self.pending_label = None
+            if self.state == "COUNTDOWN":
+                self.cancel_countdown = True
+
+    def _end_series(self) -> None:
+        self.series_label = None
+        self.series_target = 0
+        self.series_done = 0
+        self.series_paused = False
+        self.series_misses = 0
 
     def set_signer(self, signer: str) -> None:
         with self.lock:
@@ -255,7 +320,7 @@ class RecorderEngine:
     def set_language(self, language: str) -> None:
         with self.lock:
             # changing language mid-take would misfile it; only when idle
-            if self.state == "IDLE":
+            if self.state == "IDLE" and not self.series_target:
                 self.language = language
 
     def set_config(self, mannequin=None, synthetic=None, duration=None,
@@ -387,6 +452,12 @@ class RecorderEngine:
                 "remaining": round(remaining, 2),
                 "session_take_count": self.session_take_count,
                 "last_saved": self.last_saved,
+                "series": ({
+                    "label": self.series_label,
+                    "target": self.series_target,
+                    "done": self.series_done,
+                    "paused": self.series_paused,
+                } if self.series_target else None),
                 "config": {
                     "mannequin": self.desired_mannequin,
                     "synthetic": self.synthetic,
@@ -533,14 +604,31 @@ class RecorderEngine:
         self._write_video(out)
 
         cv2.imshow(CAM_WINDOW, out)
-        if (cv2.waitKey(1) & 0xFF) == ord(" "):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord(" "):
             self.stop_take()
+        elif key == ord("p"):
+            with self.lock:
+                paused = self.series_paused
+            self.pause_series(not paused)
 
     def _advance_state(self, pose, lh, rh, now: float) -> None:
         with self.lock:
+            # a series queues its next take once the rest gap is over
+            if (self.state == "IDLE" and self.series_target
+                    and not self.series_paused and self.pending_label is None
+                    and now >= self.series_next_at):
+                self.pending_label = self.series_label
             pending = self.pending_label
             stop_now = self.stop_now
             duration = self.duration
+            cancel = self.cancel_countdown
+            self.cancel_countdown = False
+
+        if cancel and self.state == "COUNTDOWN":
+            self.state = "IDLE"
+            self.phase_end_at = None
+            return
 
         if self.state == "IDLE" and pending is not None:
             self.current_label = pending
@@ -570,18 +658,41 @@ class RecorderEngine:
             if self.media_take is not None:
                 # RAW frame: read_frame() has the skeleton drawn on it, and a
                 # model trained on that would learn the drawing, not the hand.
-                ok, raw = self.capture.read_raw_frame()
-                if ok:
-                    self.media_take.add(raw, bool(pose), now)
+                raw, seq = self.capture.read_raw_frame()
+                if raw is not None:
+                    # the landmark frame added on this same tick, if any
+                    lm = len(self.take_buffer) - 1 if pose else None
+                    self.media_take.add(raw, seq, lm, now)
             elapsed = now - self.record_start
             if stop_now or elapsed >= duration or elapsed >= MAX_RECORD_S:
-                self._finalize_take()
+                saved = self._finalize_take()
                 self.state = "IDLE"
                 self.phase_end_at = None
                 with self.lock:
                     self.stop_now = False
+                    self._series_after_take(saved, now)
 
-    def _finalize_take(self) -> None:
+    def _series_after_take(self, saved: bool, now: float) -> None:
+        """Count a finished take against the series. Caller holds self.lock."""
+        if not self.series_target:
+            return
+        if saved:
+            self.series_done += 1
+            self.series_misses = 0
+        else:
+            self.series_misses += 1
+            if self.series_misses >= MAX_MISSES:
+                self.series_paused = True
+                print(f"series paused: {MAX_MISSES} takes in a row discarded "
+                      "(is anyone in frame?)")
+        if self.series_done >= self.series_target:
+            print(f"series done: {self.series_done} takes of {self.series_label}")
+            self._end_series()
+        else:
+            self.series_next_at = now + REST_S
+
+    def _finalize_take(self) -> bool:
+        """Save the take. Returns False if it was discarded."""
         modes = self.take_modes
         media, self.media_take = self.media_take, None
 
@@ -594,7 +705,7 @@ class RecorderEngine:
             n = len(media) if media is not None else 0
         if n < 5 or not self.current_label:
             print(f"WARN: only {n} frames — discarded.")
-            return
+            return False
 
         with self.lock:
             language, signer, synthetic = self.language, self.signer, self.synthetic
@@ -638,6 +749,7 @@ class RecorderEngine:
             self.last_saved = f"{self.current_label} → {slug}"
         print(f"saved [{self.session_take_count}] {self.current_label} → {slug}: "
               f"{', '.join(saved)} (+{synthetic} synthetic)")
+        return True
 
     # ── drawing (ported from Recorder) ───────────────────────────────
     def _draw_overlay(self, frame: np.ndarray, now: float) -> None:
@@ -651,6 +763,19 @@ class RecorderEngine:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(frame, f"saved: {self.session_take_count}", (15, 125),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        with self.lock:
+            target, done, paused = (self.series_target, self.series_done,
+                                    self.series_paused)
+        if target:
+            # Where the signer is looking, so the series is readable without
+            # turning to the browser. Take number = the one in progress.
+            n = min(done + (0 if self.state == "IDLE" else 1), target)
+            msg = (f"PAUSED {done}/{target} - press p to resume" if paused
+                   else f"take {n}/{target}  (p = pause)")
+            cv2.putText(frame, msg, (15, frame.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                        (0, 200, 255) if paused else (255, 255, 255), 2,
+                        cv2.LINE_AA)
         if self.current_label and self.state == "COUNTDOWN":
             rem = max(0.0, COUNTDOWN_S - (now - self.countdown_start))
             self.overlay.draw(frame, f"{self.current_label}  ({rem:.1f}s)",

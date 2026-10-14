@@ -805,6 +805,11 @@
           <div class="slider-header"><span>Duration (sec)</span><span class="slider-val tabular-nums" id="val-duration">3.0</span></div>
           <input type="range" id="slide-duration" min="0.5" max="8" step="0.5" value="3.0">
         </div>
+
+        <div class="slider-group">
+          <div class="slider-header"><span>Takes per Record click</span><span class="slider-val tabular-nums" id="val-series">1</span></div>
+          <input type="range" id="slide-series" min="1" max="50" step="1" value="1">
+        </div>
       </div>
 
       <div class="info-note">
@@ -839,6 +844,19 @@
             <span class="status-label">Saved this session</span>
             <span class="status-value tabular-nums" id="status-saved">0</span>
           </div>
+          <div class="status-block" id="series-block" style="display:none">
+            <span class="status-label">Series</span>
+            <span class="status-value tabular-nums" id="status-series">--</span>
+          </div>
+        </div>
+
+        <div id="series-actions" style="display:none; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="series-pause-btn"
+                  title="Pause after this take (or press p in the camera window)">
+            <span class="material-symbols-rounded">pause</span> <span id="series-pause-label">Pause</span></button>
+          <button class="btn btn-secondary" id="series-end-btn"
+                  title="End the series. A take already recording is finished and saved.">
+            <span class="material-symbols-rounded">stop</span> End series</button>
         </div>
 
         <button class="btn btn-danger" id="stop-btn">
@@ -958,6 +976,7 @@
     let lastSavedCount = 0;
     const openSlugs = new Set();      // expanded take panels
     const labelTextBySlug = {};       // slug -> display text (avoids inline-string escaping bugs)
+    let seriesPaused = false;
 
     /* ── mode switch ── */
     $('mode-toggle').addEventListener('click', async (e) => {
@@ -1053,8 +1072,12 @@
       try {
         if (action === 'record') {
           if (!currentSigner) return toast('Enter a signer tag first', true);
-          await apiToast('/api/record', 'POST', { label: labelTextBySlug[slug] || slug, lang: currentLang, signer: currentSigner });
-          toast(`Recording “${labelTextBySlug[slug] || slug}”…`);
+          const text = labelTextBySlug[slug] || slug;
+          // exactly this many new takes, whatever is already recorded
+          const count = Number($('slide-series').value);
+          await apiToast('/api/record', 'POST', { label: text, lang: currentLang, signer: currentSigner, count });
+          toast(count > 1 ? `Series: ${count} takes of “${text}”. Press p in the camera window to pause.`
+                          : `Recording “${text}”…`);
         } else if (action === 'toggle') {
           openSlugs.has(slug) ? openSlugs.delete(slug) : openSlugs.add(slug);
           loadLabels();
@@ -1153,6 +1176,21 @@
     $('slide-synthetic').addEventListener('input', e => { $('val-synthetic').textContent = e.target.value; pushConfig(); });
     $('slide-duration').addEventListener('input', e => { $('val-duration').textContent = Number(e.target.value).toFixed(1); pushConfig(); });
     $('signer-input').addEventListener('input', e => { currentSigner = e.target.value.trim(); pushConfig(); });
+
+    // How many takes one Record click makes. 1 is the old behaviour. It lives
+    // in the page, not the engine, and is remembered per browser where allowed.
+    try {
+      const t = Number(localStorage.getItem('takesPerClick'));
+      if (t >= 1 && t <= 50) { $('slide-series').value = t; $('val-series').textContent = t; }
+    } catch (_) {}
+    $('slide-series').addEventListener('input', e => {
+      $('val-series').textContent = e.target.value;
+      try { localStorage.setItem('takesPerClick', e.target.value); } catch (_) {}
+    });
+    $('series-pause-btn').addEventListener('click', () =>
+      api('/api/series', 'POST', { action: seriesPaused ? 'resume' : 'pause' }).catch(e => toast(e.message, true)));
+    $('series-end-btn').addEventListener('click', () =>
+      api('/api/series', 'POST', { action: 'end' }).catch(e => toast(e.message, true)));
 
     const applyViewUI = () => {
       document.querySelectorAll('#view-toggle button').forEach(x => x.classList.toggle('active', x.dataset.view === currentView));
@@ -1327,6 +1365,17 @@
       $('stop-btn').disabled = !(st === 'RECORDING' || st === 'COUNTDOWN');
       $('status-label').textContent = e.current_label || '--';
       $('status-saved').textContent = e.session_take_count || 0;
+      const ser = e.series;
+      $('series-block').style.display = ser ? '' : 'none';
+      $('series-actions').style.display = ser ? 'flex' : 'none';
+      if (ser) {
+        seriesPaused = !!ser.paused;
+        $('status-series').textContent = `${ser.done} / ${ser.target}` + (ser.paused ? ' · paused' : '');
+        $('series-pause-label').textContent = ser.paused ? 'Resume' : 'Pause';
+        $('series-pause-btn').querySelector('.material-symbols-rounded').textContent = ser.paused ? 'play_arrow' : 'pause';
+      }
+      // a running series owns the queue, so a second Record click would be ignored
+      document.querySelectorAll('#labels-container button[data-action="record"]').forEach(b => b.disabled = !!ser);
       $('status-remaining').textContent = Number(e.remaining || 0).toFixed(1);
       rebuildLangSelect(data.languages || []);
 
@@ -1382,7 +1431,7 @@
       const el = (id) => document.getElementById(id);
 
       /* ── range sliders: paint the filled portion ──────────────── */
-      const sliders = ['slide-mannequin', 'slide-synthetic', 'slide-duration']
+      const sliders = ['slide-mannequin', 'slide-synthetic', 'slide-duration', 'slide-series']
         .map(el).filter(Boolean);
       const paint = (s) => {
         const min = parseFloat(s.min) || 0;

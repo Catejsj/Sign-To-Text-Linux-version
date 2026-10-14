@@ -37,6 +37,7 @@ person if you cannot tell people apart.
 | Mannequins | how many 3D figures to show. Display only |
 | Synthetic per take | also save N synthetic body-variants of each take. Landmarks only. The corpus uses **6** |
 | Duration | seconds per take |
+| Takes per Record click | how many takes one click records, back to back (1 = a single take). About 6 s per take: countdown, take, 1.5 s rest. Press **p** in the camera window (or Pause in the browser) to pause after the current take. Three takes in a row with nobody in frame pause it automatically |
 
 **Light the hands, not the room.** The tracker loses fast-moving hands to motion
 blur long before it loses the body, so a take can look fine on screen and still
@@ -66,8 +67,11 @@ privacy statement in this project assumes it.
   is named `ann__mediaonly__0000.mp4` and never uses a landmark number, because
   synthetic copies find their parent take by number.
 - **Each take also gets a `.json` sidecar** with the frame count, the frame rate
-  actually achieved, and for every camera frame its timestamp and whether a body
-  pose was found. Landmark frame *i* is the *i*-th frame where pose is true.
+  actually achieved, and for every saved camera frame its timestamp, whether a
+  body pose was found, and `lm`: which landmark frame was recorded at the same
+  moment (counted before the clip is resampled to its stored length). Only new
+  camera frames are saved, so `fps_achieved` should be at or below the
+  camera's 30.
 - **Privacy changes.** Video and frames keep faces. They are never committed to
   git, but anyone recorded on video must have agreed to video specifically.
 

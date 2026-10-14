@@ -118,6 +118,7 @@ class LandmarkCapture:
         # ── Shared camera state ──
         self.frame       = None
         self.frame_count = 0
+        self.frame_seq   = 0      # +1 per camera frame; tells a new frame from a repeat
         self.is_running  = False
         self.cap         = None
         self.lock        = Lock()
@@ -259,6 +260,7 @@ class LandmarkCapture:
                 # DAY returns the frame untouched, so daytime costs nothing.
                 with self.lock:
                     self.frame = frame
+                    self.frame_seq += 1
             else:
                 time.sleep(0.005)
 
@@ -478,17 +480,22 @@ class LandmarkCapture:
 
         return True, base
 
-    def read_raw_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
-        """The camera image with nothing drawn on it.
+    def read_raw_frame(self) -> Tuple[Optional[np.ndarray], int]:
+        """The camera image with nothing drawn on it, and its sequence number.
 
         `read_frame()` adds the skeleton layers for display. Anything saved as
         training data must come from here instead: a model trained on frames
         with the skeleton painted on learns to read the drawing, not the hand.
+
+        The sequence number goes up by one per camera frame. The display loop
+        runs faster than the camera (about 57 passes a second against 30), so
+        a caller that saves frames must skip any number it has already seen,
+        or about half the saved frames are copies of the one before.
         """
         with self.lock:
             if self.frame is None:
-                return False, None
-            return True, self.frame.copy()
+                return None, -1
+            return self.frame.copy(), self.frame_seq
 
     # ─────────────────────────────────────────
     #  Data extraction (original working versions)

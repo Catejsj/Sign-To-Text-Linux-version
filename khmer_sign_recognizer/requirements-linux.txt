@@ -16,6 +16,10 @@ opencv-python==4.13.0.92
 mediapipe==0.10.14
 rtmlib==0.0.15
 onnxruntime-gpu==1.24.4
+# onnx: only for the GPU check in docs/SETUP.md (assert_onnx_gpu builds a probe model)
+onnx==1.22.0
+# mediapipe 0.10.14 breaks on newer protobuf (MessageFactory has no GetPrototype)
+protobuf==4.25.9
 
 # Math & Data Processing
 # NOTE: opencv-python 4.13 requires numpy>=2, and the Windows lock ran

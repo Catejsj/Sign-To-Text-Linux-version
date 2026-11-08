@@ -253,6 +253,38 @@ every fold, per-take predictions, and accuracy on takes where the tracker lost
 a hand for more than half the clip. Image features are cached in
 `data/media/_cache/`. The first run downloads ResNet-18's weights (45 MB).
 
+### Sentences (RNN + CTC)
+
+```bash
+python algo_comparison/run_sentences.py --lang khmer_sent
+python algo_comparison/run_sentences.py --lang khmer_sent --stitch khmer --save bigru
+python algo_comparison/run_sentences.py --demo khmer --models bigru --epochs 15
+```
+
+A sign model gives one answer per clip; a sentence is several signs with no
+marks where one ends. Here a model (gru, bigru, lstm, bilstm, tcn, transformer)
+outputs a sign or "blank" for every frame, and CTC training learns where each
+sign is by itself. It reads the full-length `.full.npz` files, never the
+60-frame clips.
+
+- **First fill in `data/sequences_v2/khmer_sent/signs.json`**: each sentence's
+  signs in signing order, e.g. `"sl_004": ["WEATHER", "TODAY", "HOW"]`. The same
+  sign must have the same name in every sentence. The script refuses to run
+  while any entry is empty.
+- **Scores**: word error rate (wrong + missing + extra signs over signs said;
+  lower is better) and the share of takes read exactly right, on an **unseen
+  signer** (leave one person out; with one person it falls back to same-person
+  5-fold and says so) and an **unseen sentence** (one sentence held out, only
+  if all its signs appear in another).
+- `--stitch FOLDER` adds sentences joined from single-sign takes of training
+  people, matched by sign name to that folder's `labels.json` text.
+- `--demo FOLDER` stitches every sentence from single-sign takes, so it runs
+  with no sentence recordings. It checks the pipeline; stitched joins are
+  easier than real signing, so its scores are not sentence results.
+- `--save MODEL` trains that model on everything into `models/sentence/`.
+
+Output: `algo_comparison/results_<lang>_sentences[_tag]/results.json`.
+
 ### Add your own algorithm
 
 Drop a file in `custom_algos/`. Nobody edits shared code, so nobody collides.

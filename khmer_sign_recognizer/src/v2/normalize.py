@@ -186,5 +186,20 @@ def clean_clip_from_frames(frames_list: list[np.ndarray]) -> np.ndarray:
     return deroll(shoulder_normalize(noisy))
 
 
+def full_clips_from_frames(frames_list: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Same as the noisy and clean views, but every captured frame is kept.
+
+    The 60-frame clips squash a 7 s sentence to about 8.5 frames a second, so a
+    quick sign inside it gets 4 or 5 frames. A sequence model (CTC) reads any
+    length and wants them all. Returns (clean, noisy), each (T, 48, 3).
+    """
+    if not frames_list:
+        z = np.zeros((0, NUM_JOINTS, NUM_COORDS), dtype=np.float32)
+        return z, z
+    noisy = fill_nans(np.stack(frames_list, axis=0).astype(np.float32))
+    clean = deroll(shoulder_normalize(noisy))
+    return clean.astype(np.float32), noisy.astype(np.float32)
+
+
 # Back-compat alias used by older code paths
 clip_from_frames = clean_clip_from_frames

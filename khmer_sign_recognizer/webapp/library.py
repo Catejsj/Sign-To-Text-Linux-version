@@ -275,6 +275,10 @@ def _delete_take_files(label_dir: Path, signer: str, source: str,
             if f.exists():
                 f.unlink()
                 n += 1
+    full = label_dir / f"{signer}__{source}__{variant:04d}.full.npz"
+    if full.exists():
+        full.unlink()
+        n += 1
     return n
 
 
@@ -309,7 +313,8 @@ def delete_all(language: str, slug: str | None = None) -> int:
     for d in targets:
         if not d.exists():
             continue
-        for f in list(d.glob("*.npy")) + list(d.glob("*.json")):
+        for f in (list(d.glob("*.npy")) + list(d.glob("*.json"))
+                  + list(d.glob("*.full.npz"))):
             f.unlink()
             n += 1
         media_dir = MEDIA / language / d.name

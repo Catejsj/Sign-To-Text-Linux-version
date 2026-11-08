@@ -145,6 +145,31 @@ def save_pair(root: Path, clean_clip: np.ndarray, noisy_clip: np.ndarray,
     return p1, p2
 
 
+# Full-length landmarks, one file per real take holding both views at every
+# captured frame (the .npy files above are resampled to SEQ_LEN). The .npz
+# extension keeps it out of every "*.npy" scan, so nothing that reads the
+# 60-frame takes ever sees it. Same number as the take it belongs to.
+def full_path(root: Path, label: str, signer_id: str, variant: int,
+              language: str = "khmer") -> Path:
+    return root / language / label / f"{signer_id}__real__{variant:04d}.full.npz"
+
+
+def save_full(root: Path, clean: np.ndarray, noisy: np.ndarray, label: str,
+              signer_id: str, variant: int, fps: int = 30,
+              language: str = "khmer") -> Path:
+    p = full_path(root, label, signer_id, variant, language)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(p, clean=clean.astype(np.float32),
+                        noisy=noisy.astype(np.float32), fps=np.int32(fps))
+    return p
+
+
+def load_full(npz_path: Path) -> tuple[np.ndarray, np.ndarray, int]:
+    """(clean, noisy, fps) of a full-length take; each view is (T, 48, 3)."""
+    with np.load(npz_path) as z:
+        return z["clean"], z["noisy"], int(z["fps"])
+
+
 def load_sample(npy_path: Path) -> tuple[np.ndarray, SampleMeta]:
     clip = np.load(npy_path).astype(np.float32)
     json_path = npy_path.with_suffix(".json")

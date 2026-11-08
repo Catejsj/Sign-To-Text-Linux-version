@@ -33,8 +33,9 @@ if str(ROOT) not in sys.path:
 from src.capture import LandmarkCapture                                  # noqa: E402
 from src.v2.normalize import (                                          # noqa: E402
     frame_from_landmarks, clean_clip_from_frames, noisy_clip_from_frames,
+    full_clips_from_frames,
 )
-from src.v2.schema import save_pair                                     # noqa: E402
+from src.v2.schema import save_pair, save_full                          # noqa: E402
 from src.v2.retarget import generate_variants                          # noqa: E402
 from src.v2.recognizer import (                                        # noqa: E402
     LiveRecognizer, bundle_path, list_models, load_bundle,
@@ -723,6 +724,13 @@ class RecorderEngine:
             # The media shares this exact number, so the take joins across
             # modalities on (signer, label, variant).
             variant = int(p_clean.stem.split("__")[-1])
+            # Every captured frame as well, for the sentence model. The
+            # 60-frame files above are unchanged; see schema.full_path.
+            full_clean, full_noisy = full_clips_from_frames(self.take_buffer)
+            p_full = save_full(library.SEQUENCES, full_clean, full_noisy,
+                               label=slug, signer_id=signer, variant=variant,
+                               fps=self.fps, language=language)
+            saved.append(p_full.name)
             kind = KIND_WITH_LANDMARKS
             if synthetic > 0:
                 generate_variants(

@@ -43,6 +43,15 @@ person if you cannot tell people apart.
 blur long before it loses the body, so a take can look fine on screen and still
 be missing a hand in many frames. More light on the hands is the fix.
 
+### Recording sentences (`khmer_sent`)
+
+`khmer_sent` holds 7 everyday sentences, one label each (`sl_001` to `sl_007`,
+fixed in its committed `labels.json`; never add or reorder them). Record each
+with **Duration 8**, **Synthetic per take 0**, **Takes per Record click 10**.
+Start and end with your hands down, and sign the same signs in the same order
+every take. The team's step-by-step sheet with the video clip for each sentence
+is kept outside the repo.
+
 ### Recording modes
 
 The **Capture** switch picks what a take saves. Any combination works except
@@ -53,6 +62,14 @@ none at all.
 | **Landmarks** (default) | 48 joints per frame, clean and noisy views | `data/sequences_v2/<lang>/<label>/` |
 | **Video** | the raw camera image as an `.mp4` | `data/media/<lang>/<label>/` |
 | **Frames** | every raw camera frame as a `.jpg` | `data/media/<lang>/<label>/<take>_frames/` |
+
+**Every landmark take also saves a full-length file**, `<signer>__real__<take>.full.npz`,
+next to its `.npy` files. The `.npy` clips are always resampled to 60 frames,
+which squashes an 8-second sentence to about 7 frames a second; the `.full.npz`
+keeps every frame, both views (`clean`, `noisy`), for the sentence model. Read
+it with `src.v2.schema.load_full`. Nothing that reads the `.npy` takes sees it,
+deleting a take in the app deletes it too, and `import_takes.py` carries it with
+its take. Takes recorded before 8 Nov 2026 have none.
 
 **Landmarks only is the default** because every existing recording, result and
 privacy statement in this project assumes it.

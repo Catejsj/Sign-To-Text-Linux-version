@@ -207,6 +207,25 @@ def media_hash(side: Path) -> str | None:
     return hashlib.blake2b(f.read_bytes(), digest_size=16).hexdigest()
 
 
+def copy_full(views: dict, dest_label: Path, signer: str, variant: int,
+              dry_run: bool) -> int:
+    """Copy a take's full-length landmarks (schema.full_path) under its new
+    number. Found next to its .npy by the old filename; 0 if it has none
+    (every take recorded before full-length saving existed)."""
+    for npy in views.values():
+        m = STEM.match(npy.stem)
+        if not m:
+            continue
+        src = npy.parent / f"{m['signer']}__real__{int(m['variant']):04d}.full.npz"
+        if src.exists():
+            if not dry_run:
+                dest_label.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(
+                    src, dest_label / f"{signer}__real__{variant:04d}.full.npz")
+            return 1
+    return 0
+
+
 def copy_media(side: Path, dest_label: Path, signer: str, lang: str,
                variant: int, kind: str) -> int:
     """Copy one media take under its new name. Returns files written."""
@@ -351,6 +370,7 @@ def main() -> None:
         groups[(label, signer, source)].append((old, views))
 
     written = 0
+    full_written = 0
     duplicates = 0
     per_signer: dict = defaultdict(lambda: defaultdict(int))
     written_grid: dict = defaultdict(int)
@@ -398,13 +418,16 @@ def main() -> None:
                 if source == "real":
                     media_used.add((label, signer, "real", _old))
                 continue
-            pending.append((_old, clips, digests))
+            pending.append((_old, clips, digests, views))
             if source == "real":
                 # a skipped duplicate keeps its media out too; mark either way
                 media_used.add((label, signer, "real", _old))
 
-        for i, (old, clips, digests) in enumerate(pending):
+        for i, (old, clips, digests, views) in enumerate(pending):
             variant = start + i
+            if source == "real":
+                full_written += copy_full(views, dest_label, signer, variant,
+                                          args.dry_run)
             side = media.get((label, signer, "real", old)) \
                 if source == "real" else None
             if side is not None:
@@ -483,6 +506,8 @@ def main() -> None:
                           sorted(per_signer[signer].items()))
         print(f"  {signer:<15} {parts}")
     print(f"  {'':<15} {written} files total")
+    if full_written:
+        print(f"  full-length landmarks: {full_written} take(s)")
     if media_written or mediaonly_written:
         print(f"  video/frames: {media_written} take(s) moved with their "
               f"landmarks, {mediaonly_written} video-only take(s), into "

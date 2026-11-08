@@ -301,6 +301,12 @@ R.update(n_real=N, n_synth=len(syn_clips), cap_per_sign=CAP,
          per_signer={s: int((sg == s).sum()) for s in SIGNERS})
 print(f"  {N} real + {len(syn_clips)} synthetic · {len(LABELS)} signs "
       f"· {len(SIGNERS)} signers · {DEV}")
+if len(SIGNERS) < 2:
+    # Leave-one-signer-out trains on everyone but one person, so with one
+    # person the training set is empty and sklearn fails deep inside a fold.
+    sys.exit(f"{LANG} has takes from only {SIGNERS}. The unseen-signer test "
+             f"needs at least 2 people; import the others' takes first "
+             f"(scripts/import_takes.py --lang {LANG}).")
 
 X = np.stack([summary_bones(c) for c in clips])
 Xv = np.stack([summary_valid(c) for c in clips])       # pre-bones, for the delta

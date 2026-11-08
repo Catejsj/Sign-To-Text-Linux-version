@@ -654,8 +654,17 @@ class RecorderEngine:
 
         if self.state == "RECORDING":
             if pose:
-                self.take_buffer.append(
-                    frame_from_landmarks(pose, lh, rh, self.img_w, self.img_h))
+                # This loop runs faster than the trackers update, so the same
+                # result is read again on many passes. Keep a frame only when
+                # the landmarks changed: before this, 28% of the frames in
+                # the first khmer_sent takes were exact repeats, which made
+                # time run unevenly inside a take. A new detection is never
+                # bit-identical to the last one.
+                lm_frame = frame_from_landmarks(pose, lh, rh,
+                                                self.img_w, self.img_h)
+                if not (self.take_buffer and np.array_equal(
+                        lm_frame, self.take_buffer[-1], equal_nan=True)):
+                    self.take_buffer.append(lm_frame)
             if self.media_take is not None:
                 # RAW frame: read_frame() has the skeleton drawn on it, and a
                 # model trained on that would learn the drawing, not the hand.

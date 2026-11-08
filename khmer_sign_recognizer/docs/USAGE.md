@@ -47,7 +47,7 @@ be missing a hand in many frames. More light on the hands is the fix.
 
 `khmer_sent` holds 7 everyday sentences, one label each (`sl_001` to `sl_007`,
 fixed in its committed `labels.json`; never add or reorder them). Record each
-with **Duration 8**, **Synthetic per take 0**, **Takes per Record click 10**.
+with **Duration 7**, **Synthetic per take 0**, **Takes per Record click 10**.
 Start and end with your hands down, and sign the same signs in the same order
 every take. The team's step-by-step sheet with the video clip for each sentence
 is kept outside the repo.
@@ -65,7 +65,7 @@ none at all.
 
 **Every landmark take also saves a full-length file**, `<signer>__real__<take>.full.npz`,
 next to its `.npy` files. The `.npy` clips are always resampled to 60 frames,
-which squashes an 8-second sentence to about 7 frames a second; the `.full.npz`
+which squashes a 7-second sentence to about 8.5 frames a second; the `.full.npz`
 keeps every frame, both views (`clean`, `noisy`), for the sentence model. Read
 it with `src.v2.schema.load_full`. Nothing that reads the `.npy` takes sees it,
 deleting a take in the app deletes it too, and `import_takes.py` carries it with

@@ -57,7 +57,7 @@ from src.v2.landmarks import (dropout_report, hand_presence,        # noqa: E402
 from src.v2.model_rnn import SignRNN                                # noqa: E402
 from src.v2.model_tcn import SignTCN                                # noqa: E402
 from src.v2.model_transformer import SignTransformer                # noqa: E402
-from src.v2.schema import Source, View                              # noqa: E402
+from src.v2.schema import NUM_BODY, Source, View                    # noqa: E402
 
 import argparse                                                     # noqa: E402
 ap = argparse.ArgumentParser(description=__doc__)
@@ -80,6 +80,10 @@ ap.add_argument("--cap-per-sign", type=int, default=None, metavar="N",
 ap.add_argument("--tag", default=None,
                 help="suffix for the output folder, so two runs on the same "
                      "corpus do not overwrite each other")
+ap.add_argument("--hands-only", action="store_true",
+                help="set the 6 body joints (shoulders, elbows, wrists) to 0 "
+                     "in every clip before any feature is made, so only the "
+                     "42 hand points carry information. Use with --tag")
 ap.add_argument("--charts-only", action="store_true",
                 help="redraw the charts from an existing results.json without "
                      "recomputing anything")
@@ -239,6 +243,7 @@ if A.charts_only:
 
 
 R: dict = {"lang": LANG, "grid": GRID, "folds": K, "epochs": EPOCHS,
+           "hands_only": A.hands_only,
            "generated": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 
@@ -287,6 +292,14 @@ if CAP:
     syn_y = [syn_y[i] for i in keep_syn]
     syn_g = [syn_g[i] for i in keep_syn]
     print(f"  cap {CAP}/sign: kept {len(ys)} real takes, dropped {dropped}")
+
+if A.hands_only:
+    # Body joints become a constant, so no feature can use them. Coordinates
+    # stay shoulder-normalized, so the hands are still measured from the
+    # shoulders; only the body's own movement is removed.
+    for c in clips + syn_clips:
+        c[:, :NUM_BODY] = 0.0
+    print("  hands only: body joints set to 0")
 
 LABELS = sorted(set(ys)); l2i = {l: i for i, l in enumerate(LABELS)}
 y = np.array([l2i[t] for t in ys]); groups = np.array(gids)

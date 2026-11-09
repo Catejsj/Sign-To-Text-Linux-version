@@ -269,12 +269,24 @@ class LandmarkCapture:
     # ─────────────────────────────────────────
 
     def _rtmpose_thread(self):
+        last_seq = -1
         while self.is_running:
             with self.lock:
                 if self.frame is None:
                     time.sleep(0.01)
                     continue
-                frame = self.frame.copy()
+                # Run only on a new camera frame. Running again on the same
+                # image gave a "new" body result each time (the smoothing
+                # filter moves it a little), so the body looked updated
+                # about 38 times a second while the camera gives 30 at most.
+                if self.frame_seq == last_seq:
+                    new = False
+                else:
+                    new, last_seq = True, self.frame_seq
+                    frame = self.frame.copy()
+            if not new:
+                time.sleep(0.002)
+                continue
 
             t = time.time()
             keypoints, scores = self.wholebody(frame)
@@ -318,12 +330,21 @@ class LandmarkCapture:
     # ─────────────────────────────────────────
 
     def _mediapipe_thread(self):
+        last_seq = -1
         while self.is_running:
             with self.lock:
                 if self.frame is None:
                     time.sleep(0.01)
                     continue
-                frame = self.frame.copy()
+                # Same rule as the body thread: only a new camera frame.
+                if self.frame_seq == last_seq:
+                    new = False
+                else:
+                    new, last_seq = True, self.frame_seq
+                    frame = self.frame.copy()
+            if not new:
+                time.sleep(0.002)
+                continue
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             rgb.flags.writeable = False
